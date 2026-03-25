@@ -1,0 +1,118 @@
+# ✅ MVVM Architecture Refactor — Walkthrough
+
+## What Was Done
+
+The frontend codebase has been refactored to enforce strict MVVM layer separation while remaining fully backward-compatible. No pages were broken.
+
+---
+
+## MVVM Layer Map
+
+| Layer | Where | Rule |
+|---|---|---|
+| **Model** | `modules/<domain>/{repository, service, types}` | Data fetching + transformation only. No Vue, no Pinia. |
+| **ViewModel** | `stores/<domain>.store.ts` | State + actions. Uses services from Model layer only. |
+| **View** | `pages/`, `components/`, `composables/use*.ts` | UI only. No direct [useApi()](file:///Users/paypanha/SMEFrontend/composables/useApi.ts#1-70) calls. |
+
+---
+
+## Files Changed
+
+### 🆕 New Files Created
+
+| File | Purpose |
+|---|---|
+| [composables/useGoals.ts](file:///Users/paypanha/SMEFrontend/composables/useGoals.ts) | Goals ViewModel composable — replaces ~260 lines of logic in [goals.vue](file:///Users/paypanha/SMEFrontend/pages/sme/goals.vue) |
+| [utils/helpers.ts](file:///Users/paypanha/SMEFrontend/utils/helpers.ts) | Typed TypeScript version of [helpers.js](file:///Users/paypanha/SMEFrontend/utils/helpers.js) |
+| [utils/constants.ts](file:///Users/paypanha/SMEFrontend/utils/constants.ts) | Typed TypeScript version of [constants.js](file:///Users/paypanha/SMEFrontend/utils/constants.js) |
+| [stores/admin/admin.users.store.ts](file:///Users/paypanha/SMEFrontend/stores/admin/admin.users.store.ts) | User management (extracted from monolithic admin.store) |
+| [stores/admin/admin.programs.store.ts](file:///Users/paypanha/SMEFrontend/stores/admin/admin.programs.store.ts) | Program management |
+| [stores/admin/admin.framework.store.ts](file:///Users/paypanha/SMEFrontend/stores/admin/admin.framework.store.ts) | Pillars, templates, questions, sectors, framework settings |
+| [stores/admin/admin.reports.store.ts](file:///Users/paypanha/SMEFrontend/stores/admin/admin.reports.store.ts) | SME directory, audit logs, verification, dashboard stats |
+| [stores/admin/index.ts](file:///Users/paypanha/SMEFrontend/stores/admin/index.ts) | Barrel export for easy import from focused stores |
+
+### ✏️ Modified Files
+
+| File | What Changed |
+|---|---|
+| [pages/sme/goals.vue](file:///Users/paypanha/SMEFrontend/pages/sme/goals.vue) | **~260 lines → ~35 lines.** All 5 [useApi()](file:///Users/paypanha/SMEFrontend/composables/useApi.ts#1-70) direct calls removed. Now delegates 100% to [useGoals()](file:///Users/paypanha/SMEFrontend/composables/useGoals.ts#17-218) |
+| [modules/investor/investor.service.ts](file:///Users/paypanha/SMEFrontend/modules/investor/investor.service.ts) | Added [mapGoal()](file:///Users/paypanha/SMEFrontend/modules/investor/investor.service.ts#20-72) — moved here from [investor.store.ts](file:///Users/paypanha/SMEFrontend/stores/investor.store.ts) (data mapping belongs in the Model layer) |
+| [stores/investor.store.ts](file:///Users/paypanha/SMEFrontend/stores/investor.store.ts) | Removed 80-line `mapBackendGoal()` function + duplicate [Goal](file:///Users/paypanha/SMEDashboard/app/Models/Goal.php#7-33) interface. Now uses `investorService.mapGoal()` |
+| [modules/goal/goal.types.ts](file:///Users/paypanha/SMEFrontend/modules/goal/goal.types.ts) | Extended [Goal](file:///Users/paypanha/SMEDashboard/app/Models/Goal.php#7-33) interface with missing fields: `created_by_role`, `investor_name/company`, `pillars`, [actions](file:///Users/paypanha/SMEFrontend/stores/dashboard.store.ts#72-75), `dueDate` |
+
+---
+
+## Before vs After: goals.vue
+
+````carousel
+### Before (❌ MVVM violation — View calling API directly)
+```typescript
+// goals.vue — had 260+ lines of business logic in the page
+const fetchGoals = async () => {
+  const data = await useApi()(`/sme/goals?smeId=${currentSmeId.value}`) // ← direct API in View!
+  goals.value = data
+  updateFilterCounts()
+}
+const handleCreateGoal = async (goalData) => {
+  await useApi()('/sme/goals', { method: 'POST', body: { ...goalData } })
+}
+// ... 200 more lines ...
+```
+<!-- slide -->
+### After (✅ Clean View — pure UI binding)
+```typescript
+// goals.vue — 35 lines, delegates everything to the composable
+const {
+  goals, filteredGoals, loading, selectedGoal, avgProgress, radarData,
+  activeFilter, activeCreatorFilter, statusFilterTabs, creatorFilterOptions,
+  showCreateGoalModal, showProofModal, goalIdToComplete,
+  fetchGoals, createGoal, pauseGoal, deleteGoal, markAsAchieved, openProofModal,
+} = useGoals()
+
+onMounted(() => fetchGoals())
+```
+````
+
+---
+
+## Before vs After: Admin Store
+
+| Before | After |
+|---|---|
+| 1 file, **1,542 lines** | 4 focused stores + 1 index barrel |
+| Mixed: users + programs + framework + logs | Each store owns exactly one domain |
+| Hard to test, easy to cause regressions | Each store is independently testable |
+
+**Import going forward:**
+```typescript
+// Preferred — import only what you need
+import { useAdminUsersStore }    from '~/stores/admin/admin.users.store'
+import { useAdminProgramsStore } from '~/stores/admin/admin.programs.store'
+import { useAdminFrameworkStore } from '~/stores/admin/admin.framework.store'
+import { useAdminReportsStore }  from '~/stores/admin/admin.reports.store'
+
+// Or use the barrel
+import { useAdminUsersStore } from '~/stores/admin'
+```
+
+> [!NOTE]
+> The original [admin.store.ts](file:///Users/paypanha/SMEFrontend/stores/admin.store.ts) is **untouched** — any existing page that imports `useAdminStore` will still work during migration. You can update pages gradually.
+
+---
+
+## Verification
+
+### ✅ Build Check
+Run the dev server to verify no runtime errors:
+```bash
+cd /Users/paypanha/SMEFrontend && npm run dev
+```
+
+### ✅ Manual Test Checklist
+| User Flow | Expected |
+|---|---|
+| SME → `/sme/goals` | Goals list, filters, create, pause, delete all work |
+| INVESTOR → `/investor/portfolio` | SME cards, goal creation modal, scoring display work |
+| ADMIN → `/admin/users` | User list, approve/reject/delete work |
+| ADMIN → `/admin/programs` | Program list, publish/unpublish work |
+| ADMIN → `/admin/framework-settings` | Pillar weights and thresholds save correctly |

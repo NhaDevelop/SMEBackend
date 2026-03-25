@@ -2,47 +2,47 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable
+class User extends Authenticatable implements JWTSubject
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
     protected $fillable = [
-        'name',
-        'email',
-        'password',
+        'full_name', 'email', 'password', 'phone', 'role', 'status', 'is_verified', 'last_login_at'
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
     protected $hidden = [
-        'password',
-        'remember_token',
+        'password', 'remember_token',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
-    protected function casts(): array
+    // JWT Required Methods
+    public function getJWTIdentifier()
     {
+        return $this->getKey();
+    }
+
+    public function getJWTCustomClaims()
+    {
+        // Embed the role and status inside the token for fast frontend checks
         return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'role' => $this->role,
+            'status' => $this->status
         ];
     }
+
+    // Relationships
+    public function smeProfile()
+    {
+        return $this->hasOne(SmeProfile::class);
+    }
+
+    public function investorProfile()
+    {
+        return $this->hasOne(InvestorProfile::class);
+    }
 }
+

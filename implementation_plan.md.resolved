@@ -1,0 +1,43 @@
+# Fix Backend Security & Performance
+
+This plan outlines the steps to resolve the critical vulnerabilities and performance bottlenecks identified in the audit. 
+
+## Impact on Frontend
+**ZERO IMPACT.** None of these changes will alter the JSON structure of your API responses. Your frontend Nuxt application will continue to work exactly as it does now, but the backend will be significantly faster and secure from malicious requests.
+
+## 1. Database Indexes (Performance)
+
+We need to add database indexes to columns that are frequently used in `WHERE` and `GROUP BY` clauses. Without these, your database scans every single row (Full Table Scan) on every request.
+
+#### `[NEW] database/migrations/YYYY_MM_DD_HHMMSS_add_performance_indexes.php`
+- Create a new migration file.
+- Add an index for `['role', 'status']` on the `users` table.
+- Add an index for `industry` on the `sme_profiles` table.
+
+## 2. N+1 Query Fix (Scalability)
+
+The [dealflow](file:///Users/paypanha/SMEDashboard/app/Http/Controllers/InvestorController.php#96-219) endpoint in [InvestorController](file:///Users/paypanha/SMEDashboard/app/Http/Controllers/InvestorController.php#15-462) currently runs an individual database query for every SME's assessments. We will fix this by eager loading all assessments in a single query upfront.
+
+#### [app/Http/Controllers/InvestorController.php](file:///Users/paypanha/SMEDashboard/app/Http/Controllers/InvestorController.php)
+- Update `$smes = User::where('role', 'SME')->with(['smeProfile'])->get()` to eagerly load `smeProfile.assessments`.
+- Update the loop to use the pre-loaded `$profile->assessments` instead of calling `Assessment::where(...)` inside the loop.
+
+## 3. IDOR Vulnerability Fix (Security)
+
+The [GoalController](file:///Users/paypanha/SMEDashboard/app/Http/Controllers/GoalController.php#14-223) allows any authenticated user to read, edit, or delete any goal ID across the platform. We must restrict access so an SME can only manage their own goals.
+
+#### [app/Http/Controllers/GoalController.php](file:///Users/paypanha/SMEDashboard/app/Http/Controllers/GoalController.php)
+- **[show()](file:///Users/paypanha/SMEDashboard/app/Http/Controllers/DocumentController.php#49-55):** Scope the query to `where('sme_id', auth()->user()->smeProfile->id)` (unless the user is an ADMIN or INVESTOR).
+- **[store()](file:///Users/paypanha/SMEDashboard/app/Http/Controllers/Admin/UserController.php#94-161):** Remove the ability for the request to arbitrarily provide an `sme_id`. Always map it to `auth()->user()->smeProfile->id`.
+- **[update()](file:///Users/paypanha/SMEFrontend/modules/goal/goal.service.ts#23-26) & [destroy()](file:///Users/paypanha/SMEDashboard/app/Http/Controllers/GoalController.php#216-222):** Validate that the goal belongs to the authenticated SME before modifying or deleting it.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Run `php artisan migrate` to ensure the indexes are added successfully.
+
+### Manual Verification
+- Test `GET /api/investor/dealflow` using cURL to ensure it still returns the correct structure, but faster.
+- Test `GET /api/sme/goals/{id}` to ensure SME's can fetch their own goal, but other SME IDs return a 404 or 403.

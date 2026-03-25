@@ -1,0 +1,602 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\User;
+use App\Models\Assessment;
+use App\Models\AssessmentResponse;
+use App\Models\Pillar;
+use App\Models\SmeProfile;
+use App\Models\Program;
+use App\Models\ProgramEnrollment;
+use App\Models\FrameworkSetting;
+
+class InvestorController extends Controller
+{
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    private function getThresholds(): array
+    {
+        $settings = FrameworkSetting::where('key', 'framework_config')->first();
+        return $settings?->value['thresholds'] ?? FrameworkSetting::where('key', 'thresholds')->first()?->value ?? [
+            ['id' => 'investor', 'min' => 80, 'max' => 100, 'label' => 'Investor Ready', 'color' => '#10b981'],
+            ['id' => 'near',     'min' => 60, 'max' => 79,  'label' => 'Near Ready',     'color' => '#f59e0b'],
+            ['id' => 'early',    'min' => 40, 'max' => 59,  'label' => 'Early Stage',    'color' => '#0d9488'],
+            ['id' => 'pre',      'min' => 0,  'max' => 39,  'label' => 'Pre-Investment', 'color' => '#e11d48'],
+        ];
+    }
+
+    /** Map a numeric score to the nearest threshold label, with no gaps (open-ended upper bound). */
+    private function getThresholdLabel(float $score, array $thresholds): string
+    {
+        $sorted = collect($thresholds)->sortByDesc('min')->values();
+        foreach ($sorted as $t) {
+            $t = (array) $t;
+            if ($score >= $t['min']) return $t['label'];
+        }
+        return 'Pre-Investment';
+    }
+
+    /** Map a score to a simple Low / Medium / High financial-risk label. */
+    private function getFinancialRisk(float $score, array $thresholds): string
+    {
+        $sorted = collect($thresholds)->sortByDesc('min')->values();
+        foreach ($sorted as $t) {
+            $t = (array) $t;
+            if ($score >= $t['min']) {
+                return match($t['id']) {
+                    'investor' => 'Low',
+                    'near'     => 'Low',
+                    'early'    => 'Medium',
+                    default    => 'High',
+                };
+            }
+        }
+        return 'High';
+    }
+
+    /**
+     * Calculate per-pillar scores for a completed assessment.
+     * Returns array of [ id, name, score (0-100), weight, riskLevel ]
+     */
+    private function calcPillarScores(Assessment $assessment, array $thresholds): array
+    {
+        $pillars   = Pillar::all()->keyBy('id');
+        $responses = AssessmentResponse::where('assessment_id', $assessment->id)
+            ->with('question')
+            ->get();
+
+        $grouped = [];
+        foreach ($responses as $r) {
+            if (!$r->question) continue;
+            $pid = $r->question->pillar_id;
+            $grouped[$pid] ??= ['earned' => 0, 'max' => 0];
+            $grouped[$pid]['earned'] += (float) $r->score_awarded;
+            $grouped[$pid]['max']    += (float) $r->question->weight;
+        }
+
+        $result = [];
+        foreach ($pillars as $p) {
+            $data  = $grouped[$p->id] ?? ['earned' => 0, 'max' => 0];
+            $score = $data['max'] > 0 ? round(($data['earned'] / $data['max']) * 100, 1) : 0;
+            $result[] = [
+                'id'       => $p->id,
+                'name'     => $p->name,
+                'score'    => $score,
+                'weight'   => (float) $p->weight,
+                'riskLevel'=> $this->getThresholdLabel($score, $thresholds),
+            ];
+        }
+        return $result;
+    }
+
+    // ─── Endpoints ────────────────────────────────────────────────────────────
+
+    /**
+     * GET /api/investor/dealflow
+     * Returns every active SME enriched with real growth rate, pillar scores,
+     * score history and risk classification — all from real assessment data.
+     */
+    public function dealflow(Request $request)
+    {
+        $thresholds = $this->getThresholds();
+
+        $investorProfile = auth()->user()->investorProfile;
+        $investorId = $investorProfile?->id;
+        
+        // Get program IDs the current investor is enrolled in
+        $enrolledProgramIds = [];
+        if ($investorId) {
+            $enrolledProgramIds = ProgramEnrollment::where('investor_id', $investorId)
+                ->pluck('program_id')
+                ->toArray();
+        }
+
+        $query = User::where('role', 'SME')
+            ->where('status', 'ACTIVE');
+
+        // Scope to enrolled programs if investor is logged in
+        if ($investorId) {
+            $query->whereHas('smeProfile.enrollments', function($q) use ($enrolledProgramIds) {
+                $q->whereIn('program_id', $enrolledProgramIds);
+            });
+        }
+
+        $smes = $query->with(['smeProfile', 'smeProfile.enrollments', 'smeProfile.assessments' => function($query) {
+                $query->where('status', 'Completed')->orderBy('completed_at', 'asc');
+            }])
+            ->get()
+            ->map(function (User $user) use ($thresholds) {
+                $profile = $user->smeProfile;
+                if (!$profile) return null;
+
+                // Get program IDs this SME is enrolled in
+                $smeProgramIds = $profile->enrollments->pluck('program_id')->toArray();
+
+                // ── All completed assessments ordered chronologically ──────────
+                $assessments = collect($profile->assessments ?? []);
+
+                $latestAssessment = $assessments->last();
+                // second-to-last: slice from end-2, take 1
+                $prevAssessment   = $assessments->count() >= 2 ? $assessments->slice(-2, 1)->first() : null;
+
+                // ── Current readiness score ───────────────────────────────────
+                $currentScore = $latestAssessment
+                    ? round((float) $latestAssessment->total_score, 1)
+                    : round((float) ($profile->readiness_score ?? 0), 1);
+
+                // ── Real growth rate: % change from previous to latest score ──
+                $prevScore  = $prevAssessment ? (float) $prevAssessment->total_score : null;
+                $growthRate = 0;
+                if ($prevScore !== null && $prevScore > 0) {
+                    $growthRate = round((($currentScore - $prevScore) / $prevScore) * 100, 1);
+                } elseif ($prevScore === 0 && $currentScore > 0) {
+                    $growthRate = 100; // Went from 0 → something = 100% growth
+                }
+                // Cap to reasonable visual range for the scatter plot
+                $growthPlot = max(-100, min(100, $growthRate));
+
+                // ── Score history (for sparkline / trend) ────────────────────
+                $scoreHistory = $assessments->map(fn($a) => [
+                    'date'  => $a->completed_at->format('Y-m-d'),
+                    'score' => round((float) $a->total_score, 1),
+                ])->values()->toArray();
+
+                // Compact array for the readinessHistory sparkline
+                $readinessHistory = array_column($scoreHistory, 'score');
+
+                // ── Per-pillar breakdown ──────────────────────────────────────
+                $pillars = $latestAssessment
+                    ? $this->calcPillarScores($latestAssessment, $thresholds)
+                    : [];
+
+                // ── Risk classification ───────────────────────────────────────
+                $financialRisk    = $this->getFinancialRisk($currentScore, $thresholds);
+                $readinessLabel   = $this->getThresholdLabel($currentScore, $thresholds);
+
+                // ── Last assessed date ────────────────────────────────────────
+                $lastAssessedDate = $latestAssessment
+                    ? $latestAssessment->completed_at->format('Y-m-d')
+                    : null;
+
+                // ── Program Enrollments ──────────────────────────────────────
+                $programIds = ProgramEnrollment::where('sme_id', $profile->id)
+                    ->pluck('program_id')
+                    ->toArray();
+
+                return [
+                    // Identity
+                    'id'               => $profile->id,
+                    'name'             => $profile->company_name ?? $user->full_name,
+                    'industry'         => $profile->industry ?? 'Uncategorized',
+                    'location'         => $profile->address  ?? 'N/A',
+                    'stage'            => $profile->stage    ?? 'Seed',
+                    'description'      => "Active SME in {$profile->industry}.",
+                    'fundingNeeded'    => 0,
+
+                    // Scores & Risk
+                    'score'            => $currentScore,
+                    'financialRisk'    => $financialRisk,
+                    'readinessLabel'   => $readinessLabel,
+
+                    // REAL growth data (from assessment history)
+                    'growthRate'       => $growthPlot,       // % change between last two assessments
+                    'rawGrowthRate'    => $growthRate,       // actual % (may exceed ±100)
+                    'prevScore'        => $prevScore,        // previous assessment score (null if first)
+                    'assessmentCount'  => $assessments->count(),
+
+                    // History (for sparkline)
+                    'readinessHistory' => $readinessHistory,
+                    'scoreHistory'     => $scoreHistory,
+                    'readinessProgress'=> $currentScore,
+
+                    // Pillar breakdown
+                    'pillars'          => $pillars,
+
+                    // Metadata
+                    'status'           => 'Active',
+                    'lastAssessedDate' => $lastAssessedDate,
+                    'lastUpdated'      => $lastAssessedDate ?? $user->updated_at->format('Y-m-d'),
+                    'keyStrength'      => count($pillars) > 0
+                        ? collect($pillars)->sortByDesc('score')->first()['name'] ?? 'N/A'
+                        : 'N/A',
+
+                    // Financials placeholder (extend when financial data model exists)
+                    'financials' => [
+                        'revenue' => 'N/A',
+                        'profit'  => 'N/A',
+                        'growth'  => ($growthRate >= 0 ? '+' : '') . $growthRate . '%',
+                    ],
+
+                    // Backward-compat snake_case
+                    'readiness_score'  => $currentScore,
+                    'risk_level'       => $latestAssessment->risk_level ?? 'Medium',
+                    'programIds'       => $smeProgramIds,
+                ];
+            })
+            ->filter()   // remove nulls (SMEs without profiles)
+            ->values();
+
+        return response()->json([
+            'data'       => $smes,
+            'thresholds' => $thresholds,
+        ]);
+    }
+
+    /**
+     * GET /api/investor/analytics
+     * Portfolio-level aggregates for the analytics page.
+     */
+    public function analytics()
+    {
+        $thresholds = $this->getThresholds();
+        
+        // 1. Basic Stats
+        $portfolioCount = User::where('role', 'SME')->count();
+        $avgScore       = SmeProfile::avg('readiness_score') ?? 0;
+
+        // 2. Risk Metrics (SMEs per threshold category)
+        $sortedThresholds = collect($thresholds)->sortByDesc('min');
+        $riskMetrics      = [];
+        foreach ($thresholds as $t) {
+            $riskMetrics[strtolower(str_replace(' ', '_', $t['label']))] = 0;
+        }
+
+        // 3. Detailed SME List (Same logic as dealflow but potentially filtered or aggregated as needed)
+        // For the analytics page, we need the full objects so the frontend can filter by date, sector, etc.
+        $smes = User::where('role', 'SME')
+            ->where('status', 'ACTIVE')
+            ->with(['smeProfile', 'smeProfile.assessments' => function($q) {
+                $q->where('status', 'Completed')->orderBy('completed_at', 'asc');
+            }])
+            ->get()
+            ->map(function (User $user) use ($thresholds, $sortedThresholds, &$riskMetrics) {
+                $profile = $user->smeProfile;
+                if (!$profile) return null;
+
+                $assessments = collect($profile->assessments ?? []);
+                $latestAssessment = $assessments->last();
+                
+                $currentScore = $latestAssessment
+                    ? round((float) $latestAssessment->total_score, 1)
+                    : round((float) ($profile->readiness_score ?? 0), 1);
+
+                // Update risk metrics counter
+                $matched = $sortedThresholds->first(fn($t) => $currentScore >= (float)$t['min']);
+                if ($matched) {
+                    $key = strtolower(str_replace(' ', '_', $matched['label']));
+                    $riskMetrics[$key] = ($riskMetrics[$key] ?? 0) + 1;
+                }
+
+                $prevAssessment = $assessments->count() >= 2 ? $assessments->slice(-2, 1)->first() : null;
+                $prevScore = $prevAssessment ? (float) $prevAssessment->total_score : null;
+                
+                $growthRate = 0;
+                if ($prevScore !== null && $prevScore > 0) {
+                    $growthRate = round((($currentScore - $prevScore) / $prevScore) * 100, 1);
+                }
+
+                $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
+
+                return [
+                    'id'               => $profile->id,
+                    'name'             => $profile->company_name ?? $user->full_name,
+                    'industry'         => $profile->industry ?? 'Uncategorized',
+                    'score'            => $currentScore,
+                    'financialRisk'    => $this->getFinancialRisk($currentScore, $thresholds),
+                    'readinessLabel'   => $this->getThresholdLabel($currentScore, $thresholds),
+                    'growthRate'       => max(-100, min(100, $growthRate)),
+                    'lastAssessedDate' => $latestAssessment ? $latestAssessment->completed_at->format('Y-m-d') : null,
+                    'pillars'          => $pillars,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        return response()->json([
+            'total_portfolio'    => $portfolioCount,
+            'average_readiness'  => round($avgScore, 2),
+            'sector_distribution'=> SmeProfile::selectRaw('industry, count(*) as count')
+                                               ->groupBy('industry')
+                                               ->get(),
+            'risk_metrics'       => $riskMetrics,
+            'thresholds'         => $thresholds,
+            'smes'               => $smes,
+            // Nuxt compat keys
+            'activeDealFlow'     => $portfolioCount,
+            'avgReadinessScore'  => round($avgScore, 1),
+        ]);
+    }
+
+    /**
+     * GET /api/investor/smes/{id}
+     * Investor-accessible SME profile — same shape as admin show() but open to investors.
+     */
+    public function showSme($id)
+    {
+        $thresholds = $this->getThresholds();
+
+        // Find by SmeProfile ID first, as that is what is returned in dealflow 'id'
+        $profile = SmeProfile::with(['user', 'assessments' => function ($q) {
+            $q->where('status', 'Completed')->latest();
+        }])->find($id);
+
+        if (!$profile) {
+            // Fallback to User ID for backward compatibility
+            $user = User::with(['smeProfile', 'smeProfile.assessments' => function ($q) {
+                $q->where('status', 'Completed')->latest();
+            }])->find($id);
+            $profile = $user?->smeProfile;
+        } else {
+            $user = $profile->user;
+        }
+
+        if (!$user || $user->role !== 'SME') {
+            return response()->json(['message' => 'User is not an SME or profile not found'], 404);
+        }
+
+        $latestAssessment = $profile?->assessments->first();
+        $score = $latestAssessment ? (float) $latestAssessment->total_score : (float) ($profile?->readiness_score ?? 0);
+
+        // Full assessment history for sparkline / progress chart
+        $assessments = Assessment::where('sme_id', $profile?->id)
+            ->where('status', 'Completed')
+            ->with('template')
+            ->orderBy('completed_at', 'asc')
+            ->get();
+
+        $scoreHistory  = $assessments->map(fn($a) => [
+            'date'  => $a->completed_at->format('Y-m-d'),
+            'score' => round((float) $a->total_score, 1),
+            'template_name' => $a->template?->name ?? 'Standard Assessment',
+        ])->values()->toArray();
+
+        $prevScore  = $assessments->count() >= 2 ? (float) $assessments->slice(-2, 1)->first()->total_score : null;
+        $growthRate = 0;
+        if ($prevScore !== null && $prevScore > 0) {
+            $growthRate = round((($score - $prevScore) / $prevScore) * 100, 1);
+        }
+
+        $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id'               => $profile->id,
+                'name'             => $profile?->company_name ?? $user->full_name,
+                'industry'         => $profile?->industry ?? 'N/A',
+                'location'         => $profile?->address ?? 'N/A',
+                'email'            => $user->email,
+                'stage'            => $profile?->stage ?? 'Seed',
+                'yearsInBusiness'  => $profile?->years_in_business,
+                'teamSize'         => $profile?->team_size,
+                'foundingDate'     => $profile?->founding_date?->format('Y-m-d'),
+                'websiteUrl'       => $profile?->website_url,
+                'score'            => $score,
+                'riskLevel'        => $this->getFinancialRisk($score, $thresholds),
+                'readinessStatus'  => $this->getThresholdLabel($score, $thresholds),
+                'growthPotential'  => $growthRate,
+                'growthRate'       => $growthRate,
+                'prevScore'        => $prevScore,
+                'assessmentCount'  => $assessments->count(),
+                'lastAssessed'     => $latestAssessment?->completed_at->format('Y-m-d') ?? 'N/A',
+                'pillars'          => $pillars,
+                'scoreHistory'     => $scoreHistory,
+                'readinessHistory' => array_column($scoreHistory, 'score'),
+                'assessments'      => $assessments->map(fn($a) => [
+                    'id'          => $a->id,
+                    'score'       => round((float) $a->total_score, 1),
+                    'status'      => $a->status,
+                    'completed_at'=> $a->completed_at?->format('Y-m-d'),
+                    'template_id' => $a->template_id,
+                    'template_name' => $a->template?->name ?? 'Standard Assessment',
+                ])->values()->toArray(),
+                'thresholds'       => $thresholds,
+            ]
+        ]);
+    }
+
+    /**
+     * GET /api/investor/smes/{id}/dashboard
+     * Investor-accessible SME dashboard — returns pillar scores and action items.
+     */
+    public function smeDashboard($id)
+    {
+        $thresholds = $this->getThresholds();
+
+        $profile = SmeProfile::with('user')->find($id);
+        if (!$profile) {
+            $user = User::with('smeProfile')->find($id);
+            $profile = $user?->smeProfile;
+        } else {
+            $user = $profile->user;
+        }
+
+        if (!$user || $user->role !== 'SME') {
+            return response()->json(['message' => 'User is not an SME or profile not found'], 404);
+        }
+
+        $profile = $user->smeProfile;
+        $latestAssessment = \App\Models\Assessment::where('sme_id', $profile?->id)
+            ->where('status', 'Completed')
+            ->latest('completed_at')
+            ->first();
+
+        $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
+
+        // Action items from low-scoring responses
+        $actions = [];
+        if ($latestAssessment) {
+            $responses = \App\Models\AssessmentResponse::where('assessment_id', $latestAssessment->id)
+                ->with('question')
+                ->get();
+
+            $gaps = $responses->filter(function ($r) {
+                return $r->question && $r->question->weight > 0 && ($r->score_awarded / $r->question->weight) <= 0.5;
+            })->map(function ($r) {
+                $pModel = Pillar::find($r->question->pillar_id);
+                $pillarName = $pModel ? $pModel->name : $r->question->pillar_id;
+                $max = (float)$r->question->weight;
+                $earned = (float)$r->score_awarded;
+                $ratio = $max > 0 ? ($earned / $max) : 1;
+
+                return [
+                    'id' => 'gap_' . $r->id,
+                    'title' => 'Improve: ' . $r->question->text,
+                    'description' => 'Current score: ' . round($ratio * 100) . '%. Addressing this gap could improve overall readiness by ' . round($max - $earned, 1) . ' points.',
+                    'priority' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
+                    'pillarRisk' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
+                    'pillar' => $pillarName,
+                    'impact' => round(($max - $earned), 1),
+                    'points' => round(($max - $earned), 1),
+                    'status' => 'pending'
+                ];
+            })->sortByDesc('impact')->values()->take(10);
+
+            $actions = $gaps->toArray();
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id'        => $profile->id,
+                'pillars'   => $pillars,
+                'actions'   => $actions,
+                'thresholds'=> $thresholds,
+            ]
+        ]);
+    }
+
+    /**
+     * POST /api/investor/programs/{id}/enroll
+     */
+    public function enrollProgram(Request $request, $id)
+    {
+        $program = \App\Models\Program::findOrFail($id);
+        $investorProfile = auth()->user()->investorProfile;
+
+        if (!$investorProfile) {
+            return $this->error('Investor profile not found', 403);
+        }
+
+        $existing = \App\Models\ProgramEnrollment::where('program_id', $program->id)
+            ->where('investor_id', $investorProfile->id)
+            ->first();
+
+        if ($existing) {
+            return response()->json([
+                'message' => 'You have already enrolled in this program',
+                'status' => $existing->status
+            ], 409);
+        }
+
+        $enrollment = \App\Models\ProgramEnrollment::create([
+            'program_id'      => $program->id,
+            'investor_id'     => $investorProfile->id,
+            'status'          => 'Accepted',
+            'enrollment_date' => now()
+        ]);
+
+        return $this->success($enrollment, 'Enrolled in program successfully', 201);
+    }
+
+    /**
+     * GET /api/investor/programs
+     * List published programs with live stats for investors.
+     */
+    public function programs()
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated',
+            ], 401);
+        }
+
+        $investorId = $user->investorProfile?->id;
+
+        $programs = Program::where('status', 'Published')
+            ->with(['template'])
+            ->get()
+            ->map(function ($program) use ($investorId) {
+                // Count SMEs enrolled in this specific program
+                $totalSmes = ProgramEnrollment::where('program_id', $program->id)
+                    ->whereNotNull('sme_id')
+                    ->count();
+
+                // Check if CURRENT investor is enrolled
+                $isEnrolled = false;
+                if ($investorId) {
+                    $isEnrolled = ProgramEnrollment::where('program_id', $program->id)
+                        ->where('investor_id', $investorId)
+                        ->exists();
+                }
+                
+                // Calculate average score if there's an associated template
+                $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
+                    ->whereIn('sme_id', ProgramEnrollment::where('program_id', $program->id)
+                        ->whereNotNull('sme_id')
+                        ->pluck('sme_id'))
+                    ->where('status', 'Completed')
+                    ->get();
+
+                $completedCount = $completedAssessments->count();
+                $avgScore = $completedCount > 0 ? round($completedAssessments->avg('total_score'), 1) : 0;
+                $progress = $totalSmes > 0 ? round(($completedCount / $totalSmes) * 100) : 0;
+
+                return [
+                    'id'               => $program->id,
+                    'name'             => $program->name,
+                    'description'      => $program->description,
+                    'status'           => 'Published',
+                    'template'         => $program->template?->name,
+                    'sector'           => $program->sector,
+                    'investmentAmount' => $program->investment_amount,
+                    'benefits'         => $program->benefits,
+                    'smesCount'        => $totalSmes,
+                    'isEnrolled'       => $isEnrolled,
+                    'avgScore'         => $avgScore,
+                    'progress'         => $progress,
+                    'startDate'        => $program->start_date?->format('Y-m-d'),
+                    'endDate'          => $program->end_date?->format('Y-m-d'),
+                ];
+            });
+
+        $enrolledPrograms = $programs->filter(fn($p) => $p['isEnrolled']);
+
+        $stats = [
+            'total'    => $programs->count(),
+            'active'   => $enrolledPrograms->count(), 
+            'enrolled' => $enrolledPrograms->sum('smesCount'),
+            'avgScore' => $enrolledPrograms->count() > 0 ? round($enrolledPrograms->avg('avgScore'), 1) : 0,
+        ];
+
+        return response()->json([
+            'success' => true,
+            'programs' => $programs,
+            'stats'    => $stats
+        ]);
+    }
+}
