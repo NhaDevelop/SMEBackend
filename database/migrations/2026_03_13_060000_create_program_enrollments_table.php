@@ -13,7 +13,7 @@ return new class extends Migration
             $table->foreignId('program_id')->constrained()->onDelete('cascade');
             $table->unsignedBigInteger('sme_id');
             $table->foreign('sme_id')->references('id')->on('sme_profiles')->onDelete('cascade');
-            $table->string('status')->default('Applied'); // Applied, Accepted, Rejected
+            $table->string('status')->default('Enrolled'); // Enrolled, Accepted, Rejected, Dropped (NO 'Applied' - auto enrollment only)
             $table->timestamp('enrollment_date')->nullable();
             $table->timestamps();
 

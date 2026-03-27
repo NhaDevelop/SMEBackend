@@ -257,7 +257,7 @@ class ProgramController extends Controller
         $validated = $request->validate([
             'programId' => 'required|exists:programs,id',
             'smeId' => 'required|exists:sme_profiles,id',
-            'status' => 'required|string|in:Accepted,Rejected,Dropped,Applied'
+            'status' => 'required|string|in:Accepted,Rejected,Dropped,Enrolled' // Removed 'Applied' - auto enrollment only
         ]);
 
         $enrollment = ProgramEnrollment::where('program_id', $validated['programId'])

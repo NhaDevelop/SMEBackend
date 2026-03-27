@@ -88,4 +88,47 @@ trait AssessmentScoring
 
         return $stats;
     }
+
+    /**
+     * Calculate top recommended actions for an assessment based on low-scoring indicators
+     */
+    protected function calculateTopActions($assessment, $limit = 5)
+    {
+        if (!$assessment) return [];
+
+        $responses = $assessment->relationLoaded('responses') 
+            ? $assessment->responses 
+            : AssessmentResponse::where('assessment_id', $assessment->id)->with('question')->get();
+
+        $pillars = Pillar::all()->keyBy('id');
+
+        $gaps = $responses->filter(function ($r) {
+            return $r->question && $r->question->weight > 0 && ($r->score_awarded / $r->question->weight) <= 0.5;
+        })->map(function ($r) use ($pillars) {
+            $pModel = $pillars->get($r->question->pillar_id);
+            $pillarName = $pModel ? $pModel->name : $r->question->pillar_id;
+            
+            $max = (float)$r->question->weight;
+            $earned = (float)$r->score_awarded;
+            $ratio = $max > 0 ? ($earned / $max) : 1;
+            
+            return [
+                'id' => 'gap_' . $r->id,
+                'title' => 'Improve: ' . $r->question->text,
+                'description' => 'Your current score for this indicator is ' . round($ratio * 100) . '%. Addressing this gap could improve your overall readiness by ' . round($max - $earned, 1) . ' points.',
+                'priority' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
+                'pillarRisk' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
+                'pillar' => $pillarName,
+                'impact' => round(($max - $earned), 1),
+                'points' => round(($max - $earned), 1),
+                'status' => 'pending'
+            ];
+        })->sortByDesc('impact')->values();
+
+        if ($limit) {
+            return $gaps->take($limit)->toArray();
+        }
+
+        return $gaps->toArray();
+    }
 }

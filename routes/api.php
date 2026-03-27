@@ -4,8 +4,6 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\AuditLogController;
 
-Route::get('sectors', [\App\Http\Controllers\Admin\SectorController::class , 'index']);
-
 Route::group(['prefix' => 'auth'], function () {
     Route::post('register', [AuthController::class , 'register']);
     Route::post('login', [AuthController::class , 'login']);
@@ -64,7 +62,24 @@ Route::group(['prefix' => 'admin', 'middleware' => ['auth:api', 'role:ADMIN']], 
     Route::patch('verification-requests/{id}', [\App\Http\Controllers\Admin\VerificationRequestController::class , 'update']);
     Route::get('settings', [\App\Http\Controllers\Admin\SettingController::class , 'index']);
     Route::post('settings', [\App\Http\Controllers\Admin\SettingController::class , 'store']);
+
+    // Debug endpoints for assessment scoring verification
+    Route::get('debug/pillars', [\App\Http\Controllers\Admin\AssessmentDebugController::class , 'checkPillars']);
+    Route::get('debug/assessments/score-check', [\App\Http\Controllers\Admin\AssessmentDebugController::class , 'checkAllAssessments']);
+    Route::get('debug/assessment/{id}', [\App\Http\Controllers\Admin\AssessmentDebugController::class , 'debug']);
+
+    // Reports endpoints
+    Route::get('reports/programs', [\App\Http\Controllers\Admin\ReportsController::class , 'programs']);
+    Route::get('reports/smes', [\App\Http\Controllers\Admin\ReportsController::class , 'smes']);
+    Route::get('reports/scores', [\App\Http\Controllers\Admin\ReportsController::class , 'scores']);
+    Route::get('reports/logs', [\App\Http\Controllers\Admin\ReportsController::class , 'logs']);
+    Route::get('reports/export', [\App\Http\Controllers\Admin\ReportsController::class , 'export']);
 });
+
+// Public report download routes — token auth is handled inside the controller
+Route::get('admin/reports/readiness', [\App\Http\Controllers\Admin\ReportsController::class , 'readiness']);
+Route::get('admin/reports/portfolio', [\App\Http\Controllers\Admin\ReportsController::class , 'portfolio']);
+
 
 // SME & Investor Shared/Specific Routes (Protected by Auth)
 Route::middleware('auth:api')->group(function () {
