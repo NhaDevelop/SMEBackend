@@ -7,16 +7,19 @@ use App\Models\Program;
 use App\Models\ProgramEnrollment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use App\Traits\ApiResponse;
 
 class ProgramController extends Controller
 {
+    use ApiResponse;
+
     public function index()
     {
         $programs = Program::with(['template'])->get()->map(function ($program) {
             return $this->formatProgram($program);
         });
 
-        $avgScore = $programs->whereStrict('avgScore', '>', 0)->avg('avgScore') ?? 0;
+        $avgScore = $programs->filter(fn($p) => ($p['avgScore'] ?? 0) > 0)->avg('avgScore') ?? 0;
 
         return $this->success([
             'programs' => $programs,
@@ -217,39 +220,6 @@ class ProgramController extends Controller
     }
 
     /**
-     * SME self-applies to a program — creates an Applied enrollment.
-     */
-    public function apply(Request $request, $id)
-    {
-        $program = Program::findOrFail($id);
-        $smeProfile = auth()->user()->smeProfile;
-
-        if (!$smeProfile) {
-            return response()->json(['error' => 'SME profile not found'], 403);
-        }
-
-        $existing = ProgramEnrollment::where('program_id', $program->id)
-            ->where('sme_id', $smeProfile->id)
-            ->first();
-
-        if ($existing) {
-            return response()->json([
-                'message' => 'You have already applied to this program',
-                'status' => $existing->status
-            ], 409);
-        }
-
-        $enrollment = ProgramEnrollment::create([
-            'program_id'      => $program->id,
-            'sme_id'          => $smeProfile->id,
-            'status'          => 'Enrolled',
-            'enrollment_date' => now()
-        ]);
-
-        return $this->success($enrollment, 'Enrolled in program successfully', 201);
-    }
-
-    /**
      * Admin updates enrollment status (e.g. Approved/Rejected).
      */
     public function updateEnrollmentStatus(Request $request)
@@ -257,7 +227,7 @@ class ProgramController extends Controller
         $validated = $request->validate([
             'programId' => 'required|exists:programs,id',
             'smeId' => 'required|exists:sme_profiles,id',
-            'status' => 'required|string|in:Accepted,Rejected,Dropped,Enrolled' // Removed 'Applied' - auto enrollment only
+            'status' => 'required|string|in:Accepted,Rejected,Dropped,Enrolled'
         ]);
 
         $enrollment = ProgramEnrollment::where('program_id', $validated['programId'])
@@ -305,6 +275,37 @@ class ProgramController extends Controller
     }
 
     /**
+     * POST /api/programs/{id}/apply
+     * SME Applies to a program.
+     */
+    public function apply(Request $request, $id)
+    {
+        $program = Program::findOrFail($id);
+        $smeProfile = auth()->user()->smeProfile;
+
+        if (!$smeProfile) {
+            return $this->forbidden('SME profile not found. Complete your profile before applying.');
+        }
+
+        $existing = ProgramEnrollment::where('program_id', $program->id)
+            ->where('sme_id', $smeProfile->id)
+            ->first();
+
+        if ($existing) {
+            return $this->error('You have already Applied/Enrolled in this program', 409);
+        }
+
+        $enrollment = ProgramEnrollment::create([
+            'program_id'      => $program->id,
+            'sme_id'          => $smeProfile->id,
+            'status'          => 'Enrolled', // Unified status
+            'enrollment_date' => now()
+        ]);
+
+        return $this->success($enrollment, 'Enrolled in program successfully', 201);
+    }
+
+    /**
      * GET /api/programs/{id}/participants
      * Unified list of SMEs and Investors enrolled in a program.
      */
@@ -313,7 +314,7 @@ class ProgramController extends Controller
         $program = Program::findOrFail($id);
         $user = auth()->user();
 
-        // Authorization: SMEs and Investors must be enrolled to see participants
+        // Authorization logic remains
         if ($user->role === 'SME') {
             $isEnrolled = ProgramEnrollment::where('program_id', $id)
                 ->where('sme_id', $user->smeProfile?->id)
@@ -332,7 +333,7 @@ class ProgramController extends Controller
 
         $participants = $enrollments->map(function ($enr) {
             $profile = null;
-            $role = 'Unknown';
+            $role = 'SME';
             $name = 'Unknown';
             $userId = null;
 
@@ -342,10 +343,16 @@ class ProgramController extends Controller
                 $name = $profile?->company_name ?? $profile?->user?->full_name;
                 $userId = $profile?->user_id;
             } elseif ($enr->investor_id) {
-                $role = 'Investor';
+                $role = 'INVESTOR';
                 $profile = $enr->investorProfile;
                 $name = $profile?->organization_name ?? $profile?->user?->full_name;
                 $userId = $profile?->user_id;
+            }
+
+            // Standardize status masking to 'Enrolled' for all approved states
+            $status = $enr->status;
+            if (in_array(strtolower($status), ['accepted', 'approved', 'enrolled', 'active'])) {
+                $status = 'Enrolled';
             }
 
             return [
@@ -353,7 +360,7 @@ class ProgramController extends Controller
                 'user_id' => $userId,
                 'name' => $name,
                 'role' => $role,
-                'status' => $enr->status,
+                'status' => $status,
                 'enrolled_at' => $enr->enrollment_date?->format('Y-m-d H:i:s'),
                 'industry' => $profile?->industry,
                 'profile_id' => $profile?->id,

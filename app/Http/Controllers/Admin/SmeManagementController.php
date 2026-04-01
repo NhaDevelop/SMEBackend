@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Assessment;
 use App\Models\AssessmentResponse;
 use App\Models\Pillar;
+use App\Models\Program;
 use App\Models\SmeProfile;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,8 +21,11 @@ class SmeManagementController extends Controller
      * GET /api/admin/smes/{id}
      * Fetch basic SME profile and user info.
      */
-    public function show($id)
+    public function show(Request $request, $id)
     {
+        $programId = $request->input('program_id');
+        $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
+
         // Fetch dynamic thresholds
         $settings = \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
         $thresholds = $settings ? ($settings->value['thresholds'] ?? []) : [
@@ -31,9 +35,7 @@ class SmeManagementController extends Controller
             ['id' => 'pre', 'label' => 'Pre-Investment', 'min' => 0, 'max' => 39],
         ];
 
-        $user = User::with(['smeProfile', 'smeProfile.assessments' => function ($q) {
-            $q->where('status', 'Completed')->latest();
-        }])->findOrFail($id);
+        $user = User::with('smeProfile')->findOrFail($id);
 
         if ($user->role !== 'SME') {
             return $this->error('User is not an SME', 400);
@@ -41,8 +43,22 @@ class SmeManagementController extends Controller
 
         $profile = $user->smeProfile;
 
-        $latestAssessment = $profile->assessments->first();
-        $actualScore = $latestAssessment ? (float)$latestAssessment->total_score : 0;
+        // Fetch all completed assessments ordered ascending (chronological), with template relation.
+        $allAssessments = Assessment::where('sme_id', $profile->id)
+            ->where('status', 'Completed')
+            ->with('template')
+            ->orderBy('completed_at', 'asc')
+            ->get();
+
+        // Scope to specific template when a program filter is active.
+        $assessments = $targetTemplateId
+            ? $allAssessments->where('template_id', $targetTemplateId)->values()
+            : $allAssessments->values();
+
+        // Single source of truth for latest / previous assessments.
+        $latestAssessment = $assessments->last();
+        $prevAssessment   = $assessments->count() >= 2 ? $assessments->slice(-2, 1)->first() : null;
+        $actualScore      = $latestAssessment ? (float) $latestAssessment->total_score : 0;
 
         return $this->success([
             'id' => $user->id,
@@ -55,50 +71,30 @@ class SmeManagementController extends Controller
             'yearsInBusiness' => $profile->years_in_business,
             'teamSize' => $profile->team_size,
             'stage' => $profile->stage,
-            'foundingDate' => $profile->founding_date ? $profile->founding_date->format('Y-m-d') : null,
+            'foundingDate' => ($profile && $profile->founding_date) ? \Carbon\Carbon::parse($profile->founding_date)->format('Y-m-d') : null,
             'websiteUrl' => $profile->website_url,
             'score' => $actualScore,
             'riskLevel' => $latestAssessment ? $this->getRiskLabel($actualScore, $thresholds) : 'Not Assessed',
             'readinessStatus' => $latestAssessment ? $this->getRiskLabel($actualScore, $thresholds) : 'Needs Assessment',
             'lastAssessed' => $latestAssessment ? $latestAssessment->completed_at->format('Y-m-d') : 'Never',
             // Real growth rate: % change between last two COMPLETED assessments
-            'growthPotential' => (function () use ($profile, $actualScore): float {
-                $prev = Assessment::where('sme_id', $profile->id)
-                    ->where('status', 'Completed')
-                    ->orderByDesc('completed_at')
-                    ->skip(1)->take(1)->first();
-                if (!$prev || $prev->total_score == 0) return 0;
-                return round((($actualScore - (float)$prev->total_score) / (float)$prev->total_score) * 100, 1);
+            'growthPotential' => (function () use ($prevAssessment, $actualScore): float {
+                if (!$prevAssessment || $prevAssessment->total_score == 0) return 0;
+                return round((($actualScore - (float)$prevAssessment->total_score) / (float)$prevAssessment->total_score) * 100, 1);
             })(),
-            'growthRate' => (function () use ($profile, $actualScore): float {
-                $prev = Assessment::where('sme_id', $profile->id)
-                    ->where('status', 'Completed')
-                    ->orderByDesc('completed_at')
-                    ->skip(1)->take(1)->first();
-                if (!$prev || $prev->total_score == 0) return 0;
-                return round((($actualScore - (float)$prev->total_score) / (float)$prev->total_score) * 100, 1);
+            'growthRate' => (function () use ($prevAssessment, $actualScore): float {
+                if (!$prevAssessment || $prevAssessment->total_score == 0) return 0;
+                return round((($actualScore - (float)$prevAssessment->total_score) / (float)$prevAssessment->total_score) * 100, 1);
             })(),
-            // Score history for sparkline (completed only, chronological)
-            'scoreHistory' => Assessment::where('sme_id', $profile->id)
-                ->where('status', 'Completed')
-                ->orderBy('completed_at', 'asc')
-                ->get()
-                ->map(fn($a) => [
+            // Score history for sparkline
+            'scoreHistory' => $assessments->map(fn($a) => [
                     'date'  => $a->completed_at->format('Y-m-d'),
                     'score' => round((float) $a->total_score, 1),
                 ])->values()->toArray(),
-            'readinessHistory' => Assessment::where('sme_id', $profile->id)
-                ->where('status', 'Completed')
-                ->orderBy('completed_at', 'asc')
-                ->pluck('total_score')
+            'readinessHistory' => $assessments->pluck('total_score')
                 ->map(fn($s) => round((float)$s, 1))
                 ->values()->toArray(),
-            // COMPLETED assessments ONLY — in-progress ones lack completed_at (shows as 'Invalid Date')
-            'assessments' => $profile->assessments()
-                ->with('template')
-                ->where('status', 'Completed')
-                ->orderByDesc('completed_at')
-                ->get()
+            'assessments' => $assessments
                 ->map(function ($a) use ($thresholds) {
                     return [
                         'id'           => $a->id,
@@ -110,7 +106,7 @@ class SmeManagementController extends Controller
                         'templateName' => $a->template ? $a->template->name : 'Standard Assessment',
                         'template_name'=> $a->template ? $a->template->name : 'Standard Assessment',
                     ];
-                })
+                })->values()->toArray()
         ]);
     }
 
@@ -118,8 +114,11 @@ class SmeManagementController extends Controller
      * GET /api/admin/smes/{id}/dashboard
      * Fetch analytics for the SME: radar, progress, actions.
      */
-    public function dashboard($id)
+    public function dashboard(Request $request, $id)
     {
+        $programId = $request->input('program_id');
+        $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
+        
         $user = User::with('smeProfile')->findOrFail($id);
         $profile = $user->smeProfile;
 
@@ -135,7 +134,10 @@ class SmeManagementController extends Controller
         // 1. Fetch Latest Assessment & Responses
         $latestAssessment = Assessment::where('sme_id', $profile->id)
             ->where('status', 'Completed')
-            ->latest()
+            ->when($targetTemplateId, function($q) use ($targetTemplateId) {
+                return $q->where('template_id', $targetTemplateId);
+            })
+            ->latest('completed_at')
             ->first();
 
         $pillarStats = [];
@@ -156,17 +158,21 @@ class SmeManagementController extends Controller
             }
         }
 
-        // 2. Progress Data
+        // 2. Progress Data — scoped to the same template filter so the chart
+        //    reflects only assessments relevant to the selected program.
         $progress = Assessment::where('sme_id', $profile->id)
             ->where('status', 'Completed')
+            ->when($targetTemplateId, function($q) use ($targetTemplateId) {
+                return $q->where('template_id', $targetTemplateId);
+            })
             ->orderBy('completed_at', 'asc')
             ->get()
             ->map(function ($a) {
-            return [
-            'month' => $a->completed_at->format('M'),
-            'score' => (float)$a->total_score
-            ];
-        });
+                return [
+                    'month' => $a->completed_at->format('M Y'),
+                    'score' => (float) $a->total_score,
+                ];
+            });
 
         // 3. Action Items (Derived from responses scoring < 50% of weight)
         $actions = [];

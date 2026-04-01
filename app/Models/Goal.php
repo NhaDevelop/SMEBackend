@@ -10,7 +10,9 @@ class Goal extends Model
         'sme_id', 'created_by', 'title', 'description', 
         'pillar_id', 'status', 'due_date', 
         'progress_percentage', 'target_score', 'pillar_targets',
-        'proof_note', 'proof_document'
+        'proof_note', 'proof_document',
+        'proof_verified', 'verified_by', 'verified_at',
+        'rejection_note'
     ];
 
     public function createdBy()
@@ -22,7 +24,9 @@ class Goal extends Model
         'due_date' => 'date',
         'target_score' => 'decimal:2',
         'progress_percentage' => 'integer',
-        'pillar_targets' => 'array'
+        'pillar_targets' => 'array',
+        'proof_verified' => 'boolean',
+        'verified_at' => 'datetime',
     ];
 
     public function smeProfile()

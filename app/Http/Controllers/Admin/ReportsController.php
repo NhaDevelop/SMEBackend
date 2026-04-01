@@ -8,6 +8,7 @@ use App\Models\ProgramEnrollment;
 use App\Models\SmeProfile;
 use App\Models\Assessment;
 use App\Models\Pillar;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -83,58 +84,84 @@ class ReportsController extends Controller
     }
 
     /**
-     * Get all SMEs with their scores across programs
+     * GET /api/admin/reports/smes
+     * Returns all SMEs with their scores. When program_id is supplied,
+     * only SMEs enrolled in that program are returned, and their score is
+     * the latest assessment for that program's template (0 if not yet assessed).
      */
     public function smes(Request $request)
     {
-        $smes = SmeProfile::with(['user', 'assessments'])->get()->map(function ($sme) {
-            $latestAssessment = $sme->assessments()
-                ->where('status', 'Completed')
-                ->latest()
-                ->first();
+        $programId        = $request->input('program_id');
+        $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
 
+        // Build base query — scope to enrolled SMEs when a program filter is active
+        $query = SmeProfile::with(['user']);
+        if ($programId) {
+            $enrolledSmeIds = ProgramEnrollment::where('program_id', $programId)
+                ->whereNotNull('sme_id')
+                ->pluck('sme_id');
+            $query->whereIn('id', $enrolledSmeIds);
+        }
+
+        $smes = $query->get()->map(function ($sme) use ($programId, $targetTemplateId) {
+            // Latest assessment — scoped to program template when filter is active
+            if ($targetTemplateId) {
+                $latestAssessment = Assessment::where('sme_id', $sme->id)
+                    ->where('template_id', $targetTemplateId)
+                    ->where('status', 'Completed')
+                    ->latest('completed_at')
+                    ->first();
+            } else {
+                $latestAssessment = Assessment::where('sme_id', $sme->id)
+                    ->where('status', 'Completed')
+                    ->latest('completed_at')
+                    ->first();
+            }
+
+            // Per-program scores list
             $programs = ProgramEnrollment::where('sme_id', $sme->id)
                 ->with('program')
                 ->get()
                 ->map(function ($enrollment) use ($sme) {
-                    $program = $enrollment->program;
-                    
-                    // Get assessment for this program
+                    $program    = $enrollment->program;
                     $assessment = Assessment::where('sme_id', $sme->id)
                         ->where('template_id', $program->template_id)
                         ->where('status', 'Completed')
                         ->latest()
                         ->first();
-
                     return [
-                        'program_id' => $program->id,
-                        'program_name' => $program->name,
+                        'program_id'        => $program->id,
+                        'program_name'      => $program->name,
                         'enrollment_status' => $enrollment->status,
-                        'enrollment_date' => $enrollment->enrollment_date?->format('Y-m-d'),
-                        'assessment_score' => $assessment?->total_score,
+                        'enrollment_date'   => $enrollment->enrollment_date?->format('Y-m-d'),
+                        'assessment_score'  => $assessment?->total_score,
                         'assessment_status' => $assessment?->status,
-                        'completed_at' => $assessment?->completed_at?->format('Y-m-d')
+                        'completed_at'      => $assessment?->completed_at?->format('Y-m-d'),
                     ];
                 });
 
-            // Calculate pillar scores from latest assessment
             $pillarScores = $latestAssessment ? $this->calculatePillarScores($latestAssessment) : [];
 
             return [
-                'id' => $sme->id,
-                'company_name' => $sme->company_name,
-                'user_name' => $sme->user?->full_name,
-                'email' => $sme->user?->email,
-                'phone' => $sme->user?->phone,
-                'industry' => $sme->industry,
+                'id'                  => $sme->id,
+                'company_name'        => $sme->company_name,
+                'user_name'           => $sme->user?->full_name,
+                'email'               => $sme->user?->email,
+                'phone'               => $sme->user?->phone,
+                'industry'            => $sme->industry,
                 'registration_number' => $sme->registration_number,
-                'years_in_operation' => $sme->years_in_operation,
-                'total_employees' => $sme->total_employees,
-                'latest_score' => $latestAssessment?->total_score,
-                'latest_risk_level' => $latestAssessment?->risk_level,
-                'last_assessed' => $latestAssessment?->completed_at?->format('Y-m-d'),
-                'programs' => $programs,
-                'pillar_scores' => $pillarScores
+                'years_in_operation'  => $sme->years_in_operation,
+                'total_employees'     => $sme->total_employees,
+                // When program filter active: null if not yet assessed
+                'latest_score'        => $latestAssessment
+                    ? round((float) $latestAssessment->total_score, 1)
+                    : null,
+                'latest_risk_level'   => $latestAssessment 
+                    ? $latestAssessment->risk_level 
+                    : ($targetTemplateId ? 'Not Assessed' : null),
+                'last_assessed'       => $latestAssessment?->completed_at?->format('Y-m-d'),
+                'programs'            => $programs,
+                'pillar_scores'       => $pillarScores,
             ];
         });
 
@@ -142,84 +169,85 @@ class ReportsController extends Controller
     }
 
     /**
-     * Get score distribution and statistics
+     * GET /api/admin/reports/scores
+     * Score distribution and statistics, optionally scoped to a program.
      */
     public function scores(Request $request)
     {
-        $assessments = Assessment::where('status', 'Completed')->get();
-        
+        $programId        = $request->input('program_id');
+        $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
+
+        $query = Assessment::where('status', 'Completed');
+        if ($targetTemplateId) {
+            // Only one assessment row per SME (latest) for the target template
+            $smeIds = ProgramEnrollment::where('program_id', $programId)
+                ->whereNotNull('sme_id')->pluck('sme_id');
+            $query->where('template_id', $targetTemplateId)->whereIn('sme_id', $smeIds);
+        }
+        $assessments = $query->get();
+
         $totalAssessments = $assessments->count();
-        
+
         if ($totalAssessments === 0) {
             return $this->success([
-                'total_assessments' => 0,
-                'avg_score' => 0,
+                'total_assessments'  => 0,
+                'avg_score'          => 0,
                 'score_distribution' => [],
-                'by_program' => [],
-                'by_pillar' => []
+                'by_program'         => [],
+                'by_pillar'          => [],
             ], 'No completed assessments found');
         }
 
         $avgScore = round($assessments->avg('total_score'), 2);
-        
-        // Score distribution
+
         $distribution = [
-            'excellent' => $assessments->where('total_score', '>=', 80)->count(),
-            'good' => $assessments->whereBetween('total_score', [60, 79.99])->count(),
-            'average' => $assessments->whereBetween('total_score', [40, 59.99])->count(),
-            'needs_improvement' => $assessments->where('total_score', '<', 40)->count()
+            'excellent'        => $assessments->where('total_score', '>=', 80)->count(),
+            'good'             => $assessments->whereBetween('total_score', [60, 79.99])->count(),
+            'average'          => $assessments->whereBetween('total_score', [40, 59.99])->count(),
+            'needs_improvement'=> $assessments->where('total_score', '<', 40)->count(),
         ];
 
-        // Scores by program
         $byProgram = Program::with(['template'])->get()->map(function ($program) {
             $smeIds = ProgramEnrollment::where('program_id', $program->id)->pluck('sme_id');
-            
             $scores = Assessment::whereIn('sme_id', $smeIds)
                 ->where('template_id', $program->template_id)
                 ->where('status', 'Completed')
                 ->pluck('total_score');
-
             return [
-                'program_id' => $program->id,
-                'program_name' => $program->name,
+                'program_id'        => $program->id,
+                'program_name'      => $program->name,
                 'total_assessments' => $scores->count(),
-                'avg_score' => $scores->count() > 0 ? round($scores->avg(), 2) : 0,
-                'min_score' => $scores->count() > 0 ? round($scores->min(), 2) : 0,
-                'max_score' => $scores->count() > 0 ? round($scores->max(), 2) : 0
+                'avg_score'         => $scores->count() > 0 ? round($scores->avg(), 2) : 0,
+                'min_score'         => $scores->count() > 0 ? round($scores->min(), 2) : 0,
+                'max_score'         => $scores->count() > 0 ? round($scores->max(), 2) : 0,
             ];
         });
 
-        // Average scores by pillar
         $pillars = Pillar::all();
         $byPillar = [];
-        
         foreach ($pillars as $pillar) {
             $pillarScores = [];
-            
             foreach ($assessments as $assessment) {
-                $snapshot = $assessment->questions_snapshot ?? [];
+                $snapshot        = $assessment->questions_snapshot ?? [];
                 $pillarQuestions = collect($snapshot)->where('pillar_id', $pillar->id);
-                
                 if ($pillarQuestions->count() > 0) {
-                    $pillarScore = $pillarQuestions->avg('score_awarded');
-                    $pillarScores[] = $pillarScore;
+                    $pillarScores[] = $pillarQuestions->avg('score_awarded');
                 }
             }
-            
             $byPillar[] = [
-                'pillar_id' => $pillar->id,
+                'pillar_id'   => $pillar->id,
                 'pillar_name' => $pillar->name,
-                'avg_score' => count($pillarScores) > 0 ? round(array_sum($pillarScores) / count($pillarScores), 2) : 0,
-                'weight' => $pillar->weight
+                'avg_score'   => count($pillarScores) > 0 ? round(array_sum($pillarScores) / count($pillarScores), 2) : 0,
+                'weight'      => $pillar->weight,
             ];
         }
 
         return $this->success([
-            'total_assessments' => $totalAssessments,
-            'avg_score' => $avgScore,
+            'total_assessments'  => $totalAssessments,
+            'avg_score'          => $avgScore,
             'score_distribution' => $distribution,
-            'by_program' => $byProgram,
-            'by_pillar' => $byPillar
+            'by_program'         => $byProgram,
+            'by_pillar'          => $byPillar,
         ], 'Scores report retrieved successfully');
     }
 
@@ -305,11 +333,11 @@ class ReportsController extends Controller
             return $this->portfolio($request);
         }
 
-        // If token provided via query, validate it
+        // If token provided via query, validate it — allow both ADMIN and INVESTOR
         if ($token) {
             try {
                 $user = Auth::guard('api')->setToken($token)->authenticate();
-                if (!$user || $user->role !== 'ADMIN') {
+                if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
                     return $this->error('Unauthorized', 401);
                 }
             } catch (\Exception $e) {
@@ -342,11 +370,11 @@ class ReportsController extends Controller
         $token = $request->input('token');
         $programId = $request->input('programId'); // Optional: scope to a specific program
         
-        // If token provided via query, validate it
+        // If token provided via query, validate it — allow both ADMIN and INVESTOR
         if ($token) {
             try {
                 $user = Auth::guard('api')->setToken($token)->authenticate();
-                if (!$user || $user->role !== 'ADMIN') {
+                if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
                     return $this->error('Unauthorized', 401);
                 }
             } catch (\Exception $e) {

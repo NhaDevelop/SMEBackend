@@ -3,15 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Program;
+use App\Models\ProgramEnrollment;
 use App\Models\Template;
 use App\Models\Question;
 use App\Models\Pillar;
-use App\Models\SmeProfile;
-use App\Models\ProgramEnrollment;
-use App\Models\Assessment;
 use Illuminate\Http\Request;
 use App\Traits\ApiResponse;
-use Illuminate\Support\Facades\Log;
 
 class SmeAssessmentController extends Controller
 {
@@ -32,12 +29,13 @@ class SmeAssessmentController extends Controller
                 ->where('sme_id', $user->smeProfile->id)
                 ->first();
 
-            $totalSmes = ProgramEnrollment::where('program_id', $program->id)->count();
+            $totalSmes = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count();
+            $totalInvestors = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('investor_id')->count();
             $progress = 0;
             $avgScore = 0;
 
             if ($totalSmes > 0 && $program->template_id) {
-                $smeIds = ProgramEnrollment::where('program_id', $program->id)->pluck('sme_id');
+                $smeIds = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->pluck('sme_id');
                 $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
                     ->whereIn('sme_id', $smeIds)
                     ->where('status', 'Completed')
@@ -48,22 +46,29 @@ class SmeAssessmentController extends Controller
                 $avgScore = round($completedCount > 0 ? $completedAssessments->avg('total_score') : 0);
             }
 
+            // Normalize enrollment status
+            $eStatus = $enrollment ? $enrollment->status : 'None';
+            if (in_array(strtolower($eStatus), ['accepted', 'approved', 'enrolled', 'active'])) {
+                $eStatus = 'Enrolled';
+            }
+
             return [
-            'id' => $program->id,
-            'name' => $program->name,
-            'description' => $program->description,
-            'status' => $program->status,
-            'sector' => $program->sector,
-            'investment_amount' => $program->investment_amount,
-            'benefits' => $program->benefits,
-            'startDate' => $program->start_date ? $program->start_date->format('Y-m-d') : null,
-            'endDate' => $program->end_date ? $program->end_date->format('Y-m-d') : null,
-            'templateName' => $program->template ? $program->template->name : null,
-            'templateId' => $program->template_id,
-            'enrollmentStatus' => $enrollment ? $enrollment->status : 'None',
-            'progress' => $progress,
-            'avgScore' => $avgScore,
-            'smesCount' => $totalSmes,
+                'id' => $program->id,
+                'name' => $program->name,
+                'description' => $program->description,
+                'status' => $program->status,
+                'sector' => $program->sector,
+                'investment_amount' => $program->investment_amount,
+                'benefits' => $program->benefits,
+                'startDate' => $program->start_date ? $program->start_date->format('Y-m-d') : null,
+                'endDate' => $program->end_date ? $program->end_date->format('Y-m-d') : null,
+                'templateName' => $program->template ? $program->template->name : null,
+                'templateId' => $program->template_id,
+                'enrollmentStatus' => $eStatus,
+                'progress' => $progress,
+                'avgScore' => $avgScore,
+                'smesCount' => $totalSmes,
+                'investorsCount' => $totalInvestors,
             ];
         });
 
@@ -76,73 +81,55 @@ class SmeAssessmentController extends Controller
     public function templates()
     {
         $templates = Template::where('status', 'Active')
-            ->withCount(['questions'])
             ->get()
-            ->map(function ($t) {
-            return [
-            'id' => $t->id,
-            'name' => $t->name,
-            'version' => $t->version,
-            'industry' => $t->industry,
-            'description' => $t->description,
-            'questionCount' => $t->questions_count,
-            'pillarCount' => Pillar::count(), // Simplified for now
-            ];
-        });
+            ->map(function ($template) {
+                return [
+                    'id' => $template->id,
+                    'name' => $template->name,
+                    'description' => $template->description,
+                    'version' => $template->version,
+                    'pillarCount' => \App\Models\Pillar::count(),
+                ];
+            });
 
         return $this->success($templates, 'Templates retrieved successfully');
     }
 
     /**
-     * Get questions for a specific template (or all active if needed).
+     * Get questions for a specific template.
      */
     public function questions(Request $request)
     {
-        $query = Question::query();
-
-        if ($request->has('template_id')) {
-            $query->where('template_id', $request->template_id);
+        $templateId = $request->query('template_id');
+        if (!$templateId) {
+            return $this->error('Template ID is required', 400);
         }
 
-        $questions = $query->get();
+        $template = Template::find($templateId);
+        if (!$template) {
+            return $this->error('Template not found', 404);
+        }
+
+        // Return a flat list of questions as expected by the frontend
+        $questions = Question::where('template_id', $templateId)
+            ->orderBy('pillar_id')
+            ->orderBy('id')
+            ->get();
+
         return $this->success($questions, 'Questions retrieved successfully');
     }
 
     /**
-     * Get framework settings (pillars) for the SME dashboard.
+     * Get basic framework settings (pillars, goals structure).
      */
     public function frameworkSettings()
     {
-        $settings = \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
-        
-        if ($settings) {
-            return $this->success($settings->value, 'Framework settings retrieved successfully');
-        }
-
-        $pillars = Pillar::all()->map(function ($p) {
-            return [
-            'id' => $p->id,
-            'name' => $p->name,
-            'weight' => (float)$p->weight,
-            ];
-        });
-
-        // Provide default thresholds if none are saved in DB
-        $thresholds = [
-            ['id' => 'investor', 'label' => 'Investment Ready', 'min' => 80, 'max' => 100, 'colorBg' => 'bg-emerald-500'],
-            ['id' => 'near', 'label' => 'Near Ready', 'min' => 60, 'max' => 79, 'colorBg' => 'bg-amber-500'],
-            ['id' => 'early', 'label' => 'Early Stage', 'min' => 40, 'max' => 59, 'colorBg' => 'bg-teal-500'],
-            ['id' => 'pre', 'label' => 'Pre-Investment', 'min' => 0, 'max' => 39, 'colorBg' => 'bg-red-500'],
-        ];
-
-        return $this->success([
-            'pillars' => $pillars,
-            'thresholds' => $thresholds
-        ], 'Framework settings retrieved successfully');
+        $pillars = \App\Models\Pillar::all();
+        return $this->success($pillars, 'Framework settings retrieved successfully');
     }
 
     /**
-     * Get sectors (industries) for the SME profile settings.
+     * Get available sectors.
      */
     public function sectors()
     {
@@ -165,12 +152,13 @@ class SmeAssessmentController extends Controller
                 ->where('sme_id', $smeProfile->id)
                 ->first() : null;
 
-            $totalSmes = ProgramEnrollment::where('program_id', $program->id)->count();
+            $totalSmes = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count();
+            $totalInvestors = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('investor_id')->count();
             $progress = 0;
             $avgScore = 0;
 
             if ($totalSmes > 0 && $program->template_id) {
-                $smeIds = ProgramEnrollment::where('program_id', $program->id)->pluck('sme_id');
+                $smeIds = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->pluck('sme_id');
                 $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
                     ->whereIn('sme_id', $smeIds)
                     ->where('status', 'Completed')
@@ -181,25 +169,79 @@ class SmeAssessmentController extends Controller
                 $avgScore = round($completedCount > 0 ? $completedAssessments->avg('total_score') : 0);
             }
 
+            // Normalize enrollment status
+            $eStatus = $enrollment ? $enrollment->status : 'None';
+            if (in_array(strtolower($eStatus), ['accepted', 'approved', 'enrolled', 'active'])) {
+                $eStatus = 'Enrolled';
+            }
+
             return [
-            'id' => $program->id,
-            'name' => $program->name,
-            'description' => $program->description,
-            'status' => $program->status,
-            'sector' => $program->sector,
-            'investment_amount' => $program->investment_amount,
-            'benefits' => $program->benefits,
-            'startDate' => $program->start_date ? $program->start_date->format('Y-m-d') : null,
-            'endDate' => $program->end_date ? $program->end_date->format('Y-m-d') : null,
-            'templateName' => $program->template ? $program->template->name : null,
-            'templateId' => $program->template_id,
-            'enrollmentStatus' => $enrollment ? $enrollment->status : 'None',
-            'progress' => $progress,
-            'avgScore' => $avgScore,
-            'smesCount' => $totalSmes,
+                'id' => $program->id,
+                'name' => $program->name,
+                'description' => $program->description,
+                'status' => $program->status,
+                'sector' => $program->sector,
+                'investment_amount' => $program->investment_amount,
+                'benefits' => $program->benefits,
+                'startDate' => $program->start_date ? $program->start_date->format('Y-m-d') : null,
+                'endDate' => $program->end_date ? $program->end_date->format('Y-m-d') : null,
+                'templateName' => $program->template ? $program->template->name : null,
+                'templateId' => $program->template_id,
+                'enrollmentStatus' => $eStatus,
+                'progress' => $progress,
+                'avgScore' => $avgScore,
+                'smesCount' => $totalSmes,
+                'investorsCount' => $totalInvestors,
             ];
         });
 
         return $this->success($programs, 'Programs retrieved successfully');
+    }
+
+    public function participants($id)
+    {
+        $user = auth()->user();
+        $smeProfile = $user ? $user->smeProfile : null;
+
+        // Check enrollment
+        $isEnrolled = $smeProfile ? ProgramEnrollment::where('program_id', $id)
+            ->where('sme_id', $smeProfile->id)
+            ->exists() : false;
+
+        $enrollments = ProgramEnrollment::where('program_id', $id)
+            ->with(['smeProfile', 'investorProfile'])
+            ->get()
+            ->map(function ($e) use ($isEnrolled) {
+                $name = 'Participant';
+                $role = 'SME';
+                $industry = null;
+
+                if ($e->investorProfile) {
+                    $name = $isEnrolled ? ($e->investorProfile->organization_name ?? 'Investor') : 'Investor';
+                    $role = 'INVESTOR';
+                    $industry = $e->investorProfile->industry;
+                } elseif ($e->smeProfile) {
+                    $name = $isEnrolled ? ($e->smeProfile->company_name ?? 'SME') : 'SME';
+                    $role = 'SME';
+                    $industry = $e->smeProfile->industry;
+                }
+
+                // Mask status for consistency as requested
+                $status = $e->status;
+                if (in_array(strtolower($status), ['accepted', 'approved', 'enrolled', 'active'])) {
+                    $status = 'Enrolled';
+                }
+
+                return [
+                    'id' => $e->id,
+                    'name' => $name,
+                    'role' => $role,
+                    'industry' => $industry,
+                    'status' => $status,
+                    'enrolled_at' => $e->created_at,
+                ];
+            });
+
+        return $this->success($enrollments, 'Participants retrieved successfully');
     }
 }

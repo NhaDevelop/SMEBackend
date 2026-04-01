@@ -86,9 +86,9 @@ class SmeDashboardController extends Controller
             foreach ($pillars as $p) {
                 $pillarStats[] = [
                     'id' => $p->id,
-                    'name' => $p->name,
                     'score' => 0,
                     'weight' => (float)$p->weight,
+                    'improvementPotential' => 100,
                     'riskLevel' => 'Not Assessed'
                 ];
             }
@@ -204,12 +204,14 @@ class SmeDashboardController extends Controller
         foreach ($pillars as $p) {
             $data = $grouped[$p->id] ?? ['earned' => 0, 'max' => 0];
             $score = $data['max'] > 0 ? round(($data['earned'] / $data['max']) * 100, 1) : 0;
+            $improvementPotential = round(100 - $score, 1);
 
             $stats[] = [
                 'id' => $p->id,
                 'name' => $p->name,
                 'score' => $score,
                 'weight' => (float)$p->weight,
+                'improvementPotential' => $improvementPotential,
                 'riskLevel' => $this->getRiskLabel($score, $thresholds)
             ];
         }

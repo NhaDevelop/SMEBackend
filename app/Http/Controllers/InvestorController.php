@@ -21,9 +21,9 @@ class InvestorController extends Controller
         $settings = FrameworkSetting::where('key', 'framework_config')->first();
         return $settings?->value['thresholds'] ?? FrameworkSetting::where('key', 'thresholds')->first()?->value ?? [
             ['id' => 'investor', 'min' => 80, 'max' => 100, 'label' => 'Investor Ready', 'color' => '#10b981'],
-            ['id' => 'near',     'min' => 60, 'max' => 79,  'label' => 'Near Ready',     'color' => '#f59e0b'],
-            ['id' => 'early',    'min' => 40, 'max' => 59,  'label' => 'Early Stage',    'color' => '#0d9488'],
-            ['id' => 'pre',      'min' => 0,  'max' => 39,  'label' => 'Pre-Investment', 'color' => '#e11d48'],
+            ['id' => 'near', 'min' => 60, 'max' => 79, 'label' => 'Near Ready', 'color' => '#f59e0b'],
+            ['id' => 'early', 'min' => 40, 'max' => 59, 'label' => 'Early Stage', 'color' => '#0d9488'],
+            ['id' => 'pre', 'min' => 0, 'max' => 39, 'label' => 'Pre-Investment', 'color' => '#e11d48'],
         ];
     }
 
@@ -33,7 +33,8 @@ class InvestorController extends Controller
         $sorted = collect($thresholds)->sortByDesc('min')->values();
         foreach ($sorted as $t) {
             $t = (array) $t;
-            if ($score >= $t['min']) return $t['label'];
+            if ($score >= $t['min'])
+                return $t['label'];
         }
         return 'Pre-Investment';
     }
@@ -45,11 +46,11 @@ class InvestorController extends Controller
         foreach ($sorted as $t) {
             $t = (array) $t;
             if ($score >= $t['min']) {
-                return match($t['id']) {
+                return match ($t['id']) {
                     'investor' => 'Low',
-                    'near'     => 'Low',
-                    'early'    => 'Medium',
-                    default    => 'High',
+                    'near' => 'Low',
+                    'early' => 'Medium',
+                    default => 'High',
                 };
             }
         }
@@ -62,30 +63,31 @@ class InvestorController extends Controller
      */
     private function calcPillarScores(Assessment $assessment, array $thresholds): array
     {
-        $pillars   = Pillar::all()->keyBy('id');
+        $pillars = Pillar::all()->keyBy('id');
         $responses = AssessmentResponse::where('assessment_id', $assessment->id)
             ->with('question')
             ->get();
 
         $grouped = [];
         foreach ($responses as $r) {
-            if (!$r->question) continue;
+            if (!$r->question)
+                continue;
             $pid = $r->question->pillar_id;
             $grouped[$pid] ??= ['earned' => 0, 'max' => 0];
             $grouped[$pid]['earned'] += (float) $r->score_awarded;
-            $grouped[$pid]['max']    += (float) $r->question->weight;
+            $grouped[$pid]['max'] += (float) $r->question->weight;
         }
 
         $result = [];
         foreach ($pillars as $p) {
-            $data  = $grouped[$p->id] ?? ['earned' => 0, 'max' => 0];
+            $data = $grouped[$p->id] ?? ['earned' => 0, 'max' => 0];
             $score = $data['max'] > 0 ? round(($data['earned'] / $data['max']) * 100, 1) : 0;
             $result[] = [
-                'id'       => $p->id,
-                'name'     => $p->name,
-                'score'    => $score,
-                'weight'   => (float) $p->weight,
-                'riskLevel'=> $this->getThresholdLabel($score, $thresholds),
+                'id' => $p->id,
+                'name' => $p->name,
+                'score' => $score,
+                'weight' => (float) $p->weight,
+                'riskLevel' => $this->getThresholdLabel($score, $thresholds),
             ];
         }
         return $result;
@@ -104,7 +106,7 @@ class InvestorController extends Controller
 
         $investorProfile = auth()->user()->investorProfile;
         $investorId = $investorProfile?->id;
-        
+
         // Get program IDs the current investor is enrolled in
         $enrolledProgramIds = [];
         if ($investorId) {
@@ -118,36 +120,56 @@ class InvestorController extends Controller
 
         // Scope to enrolled programs if investor is logged in
         if ($investorId) {
-            $query->whereHas('smeProfile.enrollments', function($q) use ($enrolledProgramIds) {
-                $q->whereIn('program_id', $enrolledProgramIds);
+            $programFilterId = $request->input('program_id');
+
+            $query->whereHas('smeProfile.enrollments', function ($q) use ($enrolledProgramIds, $programFilterId) {
+                if ($programFilterId) {
+                    $q->where('program_id', $programFilterId);
+                } else {
+                    $q->whereIn('program_id', $enrolledProgramIds);
+                }
             });
         }
 
-        $smes = $query->with(['smeProfile', 'smeProfile.enrollments', 'smeProfile.assessments' => function($query) {
+        $programFilterId = $investorId ? $request->input('program_id') : null;
+        $targetTemplateId = $programFilterId ? Program::find($programFilterId)?->template_id : null;
+
+        $smes = $query->with([
+            'smeProfile',
+            'smeProfile.enrollments',
+            'smeProfile.assessments' => function ($query) {
                 $query->where('status', 'Completed')->orderBy('completed_at', 'asc');
-            }])
+            }
+        ])
             ->get()
-            ->map(function (User $user) use ($thresholds) {
+            ->map(function (User $user) use ($thresholds, $targetTemplateId) {
                 $profile = $user->smeProfile;
-                if (!$profile) return null;
+                if (!$profile)
+                    return null;
 
                 // Get program IDs this SME is enrolled in
                 $smeProgramIds = $profile->enrollments->pluck('program_id')->toArray();
 
-                // ── All completed assessments ordered chronologically ──────────
+                // ── Filter assessments by targeted template (if program filter active) ──
                 $assessments = collect($profile->assessments ?? []);
+                if ($targetTemplateId) {
+                    $assessments = $assessments->where('template_id', $targetTemplateId);
+                }
 
                 $latestAssessment = $assessments->last();
                 // second-to-last: slice from end-2, take 1
-                $prevAssessment   = $assessments->count() >= 2 ? $assessments->slice(-2, 1)->first() : null;
+                $prevAssessment = $assessments->count() >= 2 ? $assessments->slice(-2, 1)->first() : null;
 
                 // ── Current readiness score ───────────────────────────────────
+                // When a program filter is active, ONLY count scores from that
+                // program's template. Never fall back to the profile's stored
+                // readiness_score — that value belongs to a different program.
                 $currentScore = $latestAssessment
                     ? round((float) $latestAssessment->total_score, 1)
-                    : round((float) ($profile->readiness_score ?? 0), 1);
+                    : ($targetTemplateId ? 0.0 : round((float) ($profile->readiness_score ?? 0), 1));
 
                 // ── Real growth rate: % change from previous to latest score ──
-                $prevScore  = $prevAssessment ? (float) $prevAssessment->total_score : null;
+                $prevScore = $prevAssessment ? (float) $prevAssessment->total_score : null;
                 $growthRate = 0;
                 if ($prevScore !== null && $prevScore > 0) {
                     $growthRate = round((($currentScore - $prevScore) / $prevScore) * 100, 1);
@@ -159,7 +181,7 @@ class InvestorController extends Controller
 
                 // ── Score history (for sparkline / trend) ────────────────────
                 $scoreHistory = $assessments->map(fn($a) => [
-                    'date'  => $a->completed_at->format('Y-m-d'),
+                    'date' => $a->completed_at->format('Y-m-d'),
                     'score' => round((float) $a->total_score, 1),
                 ])->values()->toArray();
 
@@ -172,8 +194,8 @@ class InvestorController extends Controller
                     : [];
 
                 // ── Risk classification ───────────────────────────────────────
-                $financialRisk    = $this->getFinancialRisk($currentScore, $thresholds);
-                $readinessLabel   = $this->getThresholdLabel($currentScore, $thresholds);
+                $financialRisk = $this->getFinancialRisk($currentScore, $thresholds);
+                $readinessLabel = $this->getThresholdLabel($currentScore, $thresholds);
 
                 // ── Last assessed date ────────────────────────────────────────
                 $lastAssessedDate = $latestAssessment
@@ -187,59 +209,61 @@ class InvestorController extends Controller
 
                 return [
                     // Identity
-                    'id'               => $profile->id,
-                    'name'             => $profile->company_name ?? $user->full_name,
-                    'industry'         => $profile->industry ?? 'Uncategorized',
-                    'location'         => $profile->address  ?? 'N/A',
-                    'stage'            => $profile->stage    ?? 'Seed',
-                    'description'      => "Active SME in {$profile->industry}.",
-                    'fundingNeeded'    => 0,
+                    'id' => $profile->id,
+                    'name' => $profile->company_name ?? $user->full_name,
+                    'industry' => $profile->industry ?? 'Uncategorized',
+                    'location' => $profile->address ?? 'N/A',
+                    'stage' => $profile->stage ?? 'Seed',
+                    'description' => "Active SME in {$profile->industry}.",
+                    'fundingNeeded' => 0,
 
                     // Scores & Risk
-                    'score'            => $currentScore,
-                    'financialRisk'    => $financialRisk,
-                    'readinessLabel'   => $readinessLabel,
+                    'score' => $currentScore,
+                    'financialRisk' => $financialRisk,
+                    'readinessLabel' => $readinessLabel,
 
                     // REAL growth data (from assessment history)
-                    'growthRate'       => $growthPlot,       // % change between last two assessments
-                    'rawGrowthRate'    => $growthRate,       // actual % (may exceed ±100)
-                    'prevScore'        => $prevScore,        // previous assessment score (null if first)
-                    'assessmentCount'  => $assessments->count(),
+                    'growthRate' => $growthPlot,       // % change between last two assessments
+                    'rawGrowthRate' => $growthRate,       // actual % (may exceed ±100)
+                    'prevScore' => $prevScore,        // previous assessment score (null if first)
+                    'assessmentCount' => $assessments->count(),
 
                     // History (for sparkline)
                     'readinessHistory' => $readinessHistory,
-                    'scoreHistory'     => $scoreHistory,
-                    'readinessProgress'=> $currentScore,
+                    'scoreHistory' => $scoreHistory,
+                    'readinessProgress' => $currentScore,
 
                     // Pillar breakdown
-                    'pillars'          => $pillars,
+                    'pillars' => $pillars,
 
                     // Metadata
-                    'status'           => 'Active',
+                    'status' => 'Active',
                     'lastAssessedDate' => $lastAssessedDate,
-                    'lastUpdated'      => $lastAssessedDate ?? $user->updated_at->format('Y-m-d'),
-                    'keyStrength'      => count($pillars) > 0
+                    'lastUpdated' => $lastAssessedDate ?? $user->updated_at->format('Y-m-d'),
+                    'keyStrength' => count($pillars) > 0
                         ? collect($pillars)->sortByDesc('score')->first()['name'] ?? 'N/A'
                         : 'N/A',
 
                     // Financials placeholder (extend when financial data model exists)
                     'financials' => [
                         'revenue' => 'N/A',
-                        'profit'  => 'N/A',
-                        'growth'  => ($growthRate >= 0 ? '+' : '') . $growthRate . '%',
+                        'profit' => 'N/A',
+                        'growth' => ($growthRate >= 0 ? '+' : '') . $growthRate . '%',
                     ],
 
                     // Backward-compat snake_case
-                    'readiness_score'  => $currentScore,
-                    'risk_level'       => $latestAssessment->risk_level ?? 'Medium',
-                    'programIds'       => $smeProgramIds,
+                    'readiness_score' => $currentScore,
+                    'risk_level' => $latestAssessment?->risk_level ?? 'Medium',
+                    'programIds' => $smeProgramIds,
+                    // User ID needed for report generation (readiness endpoint uses user_id)
+                    'user_id' => $user->id,
                 ];
             })
             ->filter()   // remove nulls (SMEs without profiles)
             ->values();
 
         return response()->json([
-            'data'       => $smes,
+            'data' => $smes,
             'thresholds' => $thresholds,
         ]);
     }
@@ -248,42 +272,79 @@ class InvestorController extends Controller
      * GET /api/investor/analytics
      * Portfolio-level aggregates for the analytics page.
      */
-    public function analytics()
+    public function analytics(Request $request)
     {
         $thresholds = $this->getThresholds();
-        
-        // 1. Basic Stats
-        $portfolioCount = User::where('role', 'SME')->count();
-        $avgScore       = SmeProfile::avg('readiness_score') ?? 0;
 
-        // 2. Risk Metrics (SMEs per threshold category)
-        $sortedThresholds = collect($thresholds)->sortByDesc('min');
-        $riskMetrics      = [];
+        $investorProfile = auth()->user()->investorProfile;
+        $investorId = $investorProfile?->id;
+
+        // Get program IDs the current investor is enrolled in
+        $enrolledProgramIds = [];
+        if ($investorId) {
+            $enrolledProgramIds = ProgramEnrollment::where('investor_id', $investorId)
+                ->pluck('program_id')
+                ->toArray();
+        }
+
+        // 1. Base Query with Role & Status
+        $query = User::where('role', 'SME')
+            ->where('status', 'ACTIVE');
+
+        // Scope to enrolled programs if investor is logged in (Matches Dealflow logic)
+        $programFilterId = $investorId ? $request->input('program_id') : null;
+        $targetTemplateId = $programFilterId ? Program::find($programFilterId)?->template_id : null;
+
+        if ($investorId) {
+            $query->whereHas('smeProfile.enrollments', function ($q) use ($enrolledProgramIds, $programFilterId) {
+                if ($programFilterId) {
+                    $q->where('program_id', $programFilterId);
+                } else {
+                    $q->whereIn('program_id', $enrolledProgramIds);
+                }
+            });
+        }
+
+        // 2. Fetch Aggregates from Scoped Query
+        $portfolioCount = $query->count();
+
+        // Detailed SME List mapping
+        $riskMetrics = [];
         foreach ($thresholds as $t) {
             $riskMetrics[strtolower(str_replace(' ', '_', $t['label']))] = 0;
         }
 
-        // 3. Detailed SME List (Same logic as dealflow but potentially filtered or aggregated as needed)
-        // For the analytics page, we need the full objects so the frontend can filter by date, sector, etc.
-        $smes = User::where('role', 'SME')
-            ->where('status', 'ACTIVE')
-            ->with(['smeProfile', 'smeProfile.assessments' => function($q) {
-                $q->where('status', 'Completed')->orderBy('completed_at', 'asc');
-            }])
-            ->get()
-            ->map(function (User $user) use ($thresholds, $sortedThresholds, &$riskMetrics) {
-                $profile = $user->smeProfile;
-                if (!$profile) return null;
+        $sortedThresholds = collect($thresholds)->sortByDesc('min');
 
+        $smes = $query->with([
+            'smeProfile',
+            'smeProfile.assessments' => function ($q) {
+                $q->where('status', 'Completed')->orderBy('completed_at', 'asc');
+            }
+        ])
+            ->get()
+            ->map(function (User $user) use ($thresholds, $sortedThresholds, &$riskMetrics, $targetTemplateId) {
+                $profile = $user->smeProfile;
+                if (!$profile)
+                    return null;
+
+                // ── Filter assessments by targeted template (if program filter active) ──
                 $assessments = collect($profile->assessments ?? []);
+                if ($targetTemplateId) {
+                    $assessments = $assessments->where('template_id', $targetTemplateId);
+                }
+
                 $latestAssessment = $assessments->last();
-                
+
+                // When a program filter is active, ONLY count scores from that
+                // program's template. Never fall back to the profile's stored
+                // readiness_score — that value belongs to a different program.
                 $currentScore = $latestAssessment
                     ? round((float) $latestAssessment->total_score, 1)
-                    : round((float) ($profile->readiness_score ?? 0), 1);
+                    : ($targetTemplateId ? 0.0 : round((float) ($profile->readiness_score ?? 0), 1));
 
                 // Update risk metrics counter
-                $matched = $sortedThresholds->first(fn($t) => $currentScore >= (float)$t['min']);
+                $matched = $sortedThresholds->first(fn($t) => $currentScore >= (float) $t['min']);
                 if ($matched) {
                     $key = strtolower(str_replace(' ', '_', $matched['label']));
                     $riskMetrics[$key] = ($riskMetrics[$key] ?? 0) + 1;
@@ -291,7 +352,7 @@ class InvestorController extends Controller
 
                 $prevAssessment = $assessments->count() >= 2 ? $assessments->slice(-2, 1)->first() : null;
                 $prevScore = $prevAssessment ? (float) $prevAssessment->total_score : null;
-                
+
                 $growthRate = 0;
                 if ($prevScore !== null && $prevScore > 0) {
                     $growthRate = round((($currentScore - $prevScore) / $prevScore) * 100, 1);
@@ -300,32 +361,35 @@ class InvestorController extends Controller
                 $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
 
                 return [
-                    'id'               => $profile->id,
-                    'name'             => $profile->company_name ?? $user->full_name,
-                    'industry'         => $profile->industry ?? 'Uncategorized',
-                    'score'            => $currentScore,
-                    'financialRisk'    => $this->getFinancialRisk($currentScore, $thresholds),
-                    'readinessLabel'   => $this->getThresholdLabel($currentScore, $thresholds),
-                    'growthRate'       => max(-100, min(100, $growthRate)),
+                    'id' => $profile->id,
+                    'name' => $profile->company_name ?? $user->full_name,
+                    'industry' => $profile->industry ?? 'Uncategorized',
+                    'score' => $currentScore,
+                    'financialRisk' => $this->getFinancialRisk($currentScore, $thresholds),
+                    'readinessLabel' => $this->getThresholdLabel($currentScore, $thresholds),
+                    'growthRate' => max(-100, min(100, $growthRate)),
                     'lastAssessedDate' => $latestAssessment ? $latestAssessment->completed_at->format('Y-m-d') : null,
-                    'pillars'          => $pillars,
+                    'pillars' => $pillars,
                 ];
             })
             ->filter()
             ->values();
 
+        $avgScore = $smes->avg('score') ?? 0;
+
         return response()->json([
-            'total_portfolio'    => $portfolioCount,
-            'average_readiness'  => round($avgScore, 2),
-            'sector_distribution'=> SmeProfile::selectRaw('industry, count(*) as count')
-                                               ->groupBy('industry')
-                                               ->get(),
-            'risk_metrics'       => $riskMetrics,
-            'thresholds'         => $thresholds,
-            'smes'               => $smes,
+            'total_portfolio' => $portfolioCount,
+            'average_readiness' => round($avgScore, 2),
+            'sector_distribution' => SmeProfile::whereIn('user_id', (clone $query)->pluck('id'))
+                ->selectRaw('industry, count(*) as count')
+                ->groupBy('industry')
+                ->get(),
+            'risk_metrics' => $riskMetrics,
+            'thresholds' => $thresholds,
+            'smes' => $smes,
             // Nuxt compat keys
-            'activeDealFlow'     => $portfolioCount,
-            'avgReadinessScore'  => round($avgScore, 1),
+            'activeDealFlow' => $portfolioCount,
+            'avgReadinessScore' => round($avgScore, 1),
         ]);
     }
 
@@ -333,46 +397,54 @@ class InvestorController extends Controller
      * GET /api/investor/smes/{id}
      * Investor-accessible SME profile — same shape as admin show() but open to investors.
      */
-    public function showSme($id)
+    public function showSme(Request $request, $id)
     {
         $thresholds = $this->getThresholds();
+        $programId = $request->input('program_id');
+        $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
 
         // Find by SmeProfile ID first, as that is what is returned in dealflow 'id'
-        $profile = SmeProfile::with(['user', 'assessments' => function ($q) {
-            $q->where('status', 'Completed')->latest();
-        }])->find($id);
+        $profile = SmeProfile::with([
+            'user',
+            'assessments' => function ($q) {
+                $q->where('status', 'Completed')->latest();
+            }
+        ])->find($id);
 
         if (!$profile) {
             // Fallback to User ID for backward compatibility
-            $user = User::with(['smeProfile', 'smeProfile.assessments' => function ($q) {
-                $q->where('status', 'Completed')->latest();
-            }])->find($id);
+            $user = User::with([
+                'smeProfile',
+                'smeProfile.assessments' => function ($q) {
+                    $q->where('status', 'Completed')->latest();
+                }
+            ])->find($id);
             $profile = $user?->smeProfile;
         } else {
             $user = $profile->user;
         }
 
-        if (!$user || $user->role !== 'SME') {
-            return response()->json(['message' => 'User is not an SME or profile not found'], 404);
-        }
-
-        $latestAssessment = $profile?->assessments->first();
-        $score = $latestAssessment ? (float) $latestAssessment->total_score : (float) ($profile?->readiness_score ?? 0);
-
-        // Full assessment history for sparkline / progress chart
-        $assessments = Assessment::where('sme_id', $profile?->id)
+        // Filter assessments by targeted template (if program filter active)
+        $allAssessments = Assessment::where('sme_id', $profile?->id)
             ->where('status', 'Completed')
             ->with('template')
             ->orderBy('completed_at', 'asc')
             ->get();
 
-        $scoreHistory  = $assessments->map(fn($a) => [
-            'date'  => $a->completed_at->format('Y-m-d'),
+        $assessments = $targetTemplateId
+            ? $allAssessments->where('template_id', $targetTemplateId)
+            : $allAssessments;
+
+        $latestAssessment = $assessments->last();
+        $score = $latestAssessment ? (float) $latestAssessment->total_score : (float) ($profile?->readiness_score ?? 0);
+
+        $scoreHistory = $assessments->map(fn($a) => [
+            'date' => $a->completed_at->format('Y-m-d'),
             'score' => round((float) $a->total_score, 1),
             'template_name' => $a->template?->name ?? 'Standard Assessment',
         ])->values()->toArray();
 
-        $prevScore  = $assessments->count() >= 2 ? (float) $assessments->slice(-2, 1)->first()->total_score : null;
+        $prevScore = $assessments->count() >= 2 ? (float) $assessments->slice(-2, 1)->first()->total_score : null;
         $growthRate = 0;
         if ($prevScore !== null && $prevScore > 0) {
             $growthRate = round((($score - $prevScore) / $prevScore) * 100, 1);
@@ -383,36 +455,36 @@ class InvestorController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'id'               => $profile->id,
-                'name'             => $profile?->company_name ?? $user->full_name,
-                'industry'         => $profile?->industry ?? 'N/A',
-                'location'         => $profile?->address ?? 'N/A',
-                'email'            => $user->email,
-                'stage'            => $profile?->stage ?? 'Seed',
-                'yearsInBusiness'  => $profile?->years_in_business,
-                'teamSize'         => $profile?->team_size,
-                'foundingDate'     => $profile?->founding_date?->format('Y-m-d'),
-                'websiteUrl'       => $profile?->website_url,
-                'score'            => $score,
-                'riskLevel'        => $this->getFinancialRisk($score, $thresholds),
-                'readinessStatus'  => $this->getThresholdLabel($score, $thresholds),
-                'growthPotential'  => $growthRate,
-                'growthRate'       => $growthRate,
-                'prevScore'        => $prevScore,
-                'assessmentCount'  => $assessments->count(),
-                'lastAssessed'     => $latestAssessment?->completed_at->format('Y-m-d') ?? 'N/A',
-                'pillars'          => $pillars,
-                'scoreHistory'     => $scoreHistory,
+                'id' => $profile->id,
+                'name' => $profile?->company_name ?? $user->full_name,
+                'industry' => $profile?->industry ?? 'N/A',
+                'location' => $profile?->address ?? 'N/A',
+                'email' => $user->email,
+                'stage' => $profile?->stage ?? 'Seed',
+                'yearsInBusiness' => $profile?->years_in_business,
+                'teamSize' => $profile?->team_size,
+                'foundingDate' => ($profile && $profile->founding_date) ? $profile->founding_date->format('Y-m-d') : null,
+                'websiteUrl' => $profile?->website_url,
+                'score' => $score,
+                'riskLevel' => $this->getFinancialRisk($score, $thresholds),
+                'readinessStatus' => $this->getThresholdLabel($score, $thresholds),
+                'growthPotential' => $growthRate,
+                'growthRate' => $growthRate,
+                'prevScore' => $prevScore,
+                'assessmentCount' => $assessments->count(),
+                'lastAssessed' => $latestAssessment?->completed_at->format('Y-m-d') ?? 'N/A',
+                'pillars' => $pillars,
+                'scoreHistory' => $scoreHistory,
                 'readinessHistory' => array_column($scoreHistory, 'score'),
-                'assessments'      => $assessments->map(fn($a) => [
-                    'id'          => $a->id,
-                    'score'       => round((float) $a->total_score, 1),
-                    'status'      => $a->status,
-                    'completed_at'=> $a->completed_at?->format('Y-m-d'),
+                'assessments' => $assessments->map(fn($a) => [
+                    'id' => $a->id,
+                    'score' => round((float) $a->total_score, 1),
+                    'status' => $a->status,
+                    'completed_at' => $a->completed_at?->format('Y-m-d'),
                     'template_id' => $a->template_id,
                     'template_name' => $a->template?->name ?? 'Standard Assessment',
                 ])->values()->toArray(),
-                'thresholds'       => $thresholds,
+                'thresholds' => $thresholds,
             ]
         ]);
     }
@@ -421,7 +493,7 @@ class InvestorController extends Controller
      * GET /api/investor/smes/{id}/dashboard
      * Investor-accessible SME dashboard — returns pillar scores and action items.
      */
-    public function smeDashboard($id)
+    public function smeDashboard(Request $request, $id)
     {
         $thresholds = $this->getThresholds();
 
@@ -438,8 +510,14 @@ class InvestorController extends Controller
         }
 
         $profile = $user->smeProfile;
+        $programId = $request->input('program_id');
+        $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
+
         $latestAssessment = \App\Models\Assessment::where('sme_id', $profile?->id)
             ->where('status', 'Completed')
+            ->when($targetTemplateId, function ($q) use ($targetTemplateId) {
+                return $q->where('template_id', $targetTemplateId);
+            })
             ->latest('completed_at')
             ->first();
 
@@ -457,8 +535,8 @@ class InvestorController extends Controller
             })->map(function ($r) {
                 $pModel = Pillar::find($r->question->pillar_id);
                 $pillarName = $pModel ? $pModel->name : $r->question->pillar_id;
-                $max = (float)$r->question->weight;
-                $earned = (float)$r->score_awarded;
+                $max = (float) $r->question->weight;
+                $earned = (float) $r->score_awarded;
                 $ratio = $max > 0 ? ($earned / $max) : 1;
 
                 return [
@@ -480,10 +558,10 @@ class InvestorController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'id'        => $profile->id,
-                'pillars'   => $pillars,
-                'actions'   => $actions,
-                'thresholds'=> $thresholds,
+                'id' => $profile->id,
+                'pillars' => $pillars,
+                'actions' => $actions,
+                'thresholds' => $thresholds,
             ]
         ]);
     }
@@ -512,9 +590,9 @@ class InvestorController extends Controller
         }
 
         $enrollment = \App\Models\ProgramEnrollment::create([
-            'program_id'      => $program->id,
-            'investor_id'     => $investorProfile->id,
-            'status'          => 'Accepted',
+            'program_id' => $program->id,
+            'investor_id' => $investorProfile->id,
+            'status' => 'Accepted',
             'enrollment_date' => now()
         ]);
 
@@ -548,12 +626,16 @@ class InvestorController extends Controller
 
                 // Check if CURRENT investor is enrolled
                 $isEnrolled = false;
+                $totalInvestors = ProgramEnrollment::where('program_id', $program->id)
+                    ->whereNotNull('investor_id')
+                    ->count();
+
                 if ($investorId) {
                     $isEnrolled = ProgramEnrollment::where('program_id', $program->id)
                         ->where('investor_id', $investorId)
                         ->exists();
                 }
-                
+
                 // Calculate average score if there's an associated template
                 $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
                     ->whereIn('sme_id', ProgramEnrollment::where('program_id', $program->id)
@@ -567,28 +649,29 @@ class InvestorController extends Controller
                 $progress = $totalSmes > 0 ? round(($completedCount / $totalSmes) * 100) : 0;
 
                 return [
-                    'id'               => $program->id,
-                    'name'             => $program->name,
-                    'description'      => $program->description,
-                    'status'           => 'Published',
-                    'template'         => $program->template?->name,
-                    'sector'           => $program->sector,
+                    'id' => $program->id,
+                    'name' => $program->name,
+                    'description' => $program->description,
+                    'status' => 'Published',
+                    'template' => $program->template?->name,
+                    'sector' => $program->sector,
                     'investmentAmount' => $program->investment_amount,
-                    'benefits'         => $program->benefits,
-                    'smesCount'        => $totalSmes,
-                    'isEnrolled'       => $isEnrolled,
-                    'avgScore'         => $avgScore,
-                    'progress'         => $progress,
-                    'startDate'        => $program->start_date?->format('Y-m-d'),
-                    'endDate'          => $program->end_date?->format('Y-m-d'),
+                    'benefits' => $program->benefits,
+                    'smesCount' => $totalSmes,
+                    'investorsCount' => $totalInvestors,
+                    'isEnrolled' => $isEnrolled,
+                    'avgScore' => $avgScore,
+                    'progress' => $progress,
+                    'startDate' => $program->start_date?->format('Y-m-d'),
+                    'endDate' => $program->end_date?->format('Y-m-d'),
                 ];
             });
 
         $enrolledPrograms = $programs->filter(fn($p) => $p['isEnrolled']);
 
         $stats = [
-            'total'    => $programs->count(),
-            'active'   => $enrolledPrograms->count(), 
+            'total' => $programs->count(),
+            'active' => $enrolledPrograms->count(),
             'enrolled' => $enrolledPrograms->sum('smesCount'),
             'avgScore' => $enrolledPrograms->count() > 0 ? round($enrolledPrograms->avg('avgScore'), 1) : 0,
         ];
@@ -596,7 +679,7 @@ class InvestorController extends Controller
         return response()->json([
             'success' => true,
             'programs' => $programs,
-            'stats'    => $stats
+            'stats' => $stats
         ]);
     }
 }

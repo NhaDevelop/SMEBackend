@@ -89,14 +89,15 @@ class GoalController extends Controller
             $creatorRole = $creator?->role ?? 'SME';
             $investorProfile = $creator?->investorProfile;
             
-            return array_merge($goal->toArray(), [
+            $goalData = $goal->toArray();
+            return array_merge($goalData, [
                 'sme_name' => $profile?->company_name ?? $u?->full_name ?? 'SME User',
                 'industry' => $profile?->industry ?? 'N/A',
                 'location' => $profile?->address ?? 'N/A',
                 'current_score' => (float) ($profile?->readiness_score ?? 0),
                 'created_by_role' => strtolower($creatorRole),
                 'investor_name' => $creator?->name ?? $creator?->full_name,
-                'investor_company' => $investorProfile?->company_name
+                'investor_company' => $investorProfile?->organization_name ?? null
             ]);
         });
 
@@ -191,7 +192,7 @@ class GoalController extends Controller
         if ($user->role === 'SME') {
             $smeId = $user->smeProfile ? $user->smeProfile->id : null;
         } else {
-            $smeId = $request->sme_id;
+            $smeId = $request->sme_id ?? $request->smeId;
         }
 
         if (!$smeId) {
@@ -234,14 +235,92 @@ class GoalController extends Controller
         $validated = $request->validate([
             'title' => 'nullable|string|max:255',
             'description' => 'nullable|string',
-            'status' => 'nullable|string',
+            'status' => 'nullable|string|in:Not Started,ACTIVE,Active,Paused,PAUSED,Pending Verification,COMPLETED,Achieved,In Progress',
             'progress_percentage' => 'nullable|integer|min:0|max:100',
             'due_date' => 'nullable|date',
             'pillar_targets' => 'nullable|array',
+            'proof_note' => 'nullable|string',
+            'proof_document' => 'nullable', // Could be file or string
         ]);
+
+        if ($request->hasFile('proof_document')) {
+            $file = $request->file('proof_document');
+            $path = $file->store('proofs', 'public');
+            $validated['proof_document'] = $path;
+        }
+
+        // Normalize status
+        if (isset($validated['status'])) {
+            $status = $validated['status'];
+            if (strtolower($status) === 'achieved') $validated['status'] = 'Achieved';
+            if (strtolower($status) === 'completed') $validated['status'] = 'Achieved';
+            if (strtolower($status) === 'pending verification') $validated['status'] = 'Pending Verification';
+            if (strtolower($status) === 'active') $validated['status'] = 'Active';
+            if (strtolower($status) === 'in progress') $validated['status'] = 'In Progress';
+        }
 
         $goal->update($validated);
         return $this->success($goal, 'Goal updated successfully');
+    }
+
+    /**
+     * Investor approves a goal's proof — marks it as fully Achieved.
+     */
+    public function verifyGoal(Request $request, $id)
+    {
+        $user = auth()->user();
+        if (!in_array($user->role, ['INVESTOR', 'ADMIN'])) {
+            return $this->error('Only investors or admins can verify goals.', 403);
+        }
+
+        $goal = Goal::findOrFail($id);
+        
+        if (strtolower($goal->status) !== 'pending verification') {
+            return $this->error('This goal is not pending verification. Current status: ' . $goal->status, 422);
+        }
+
+        $goal->update([
+            'status' => 'Achieved',
+            'proof_verified' => true,
+            'verified_by' => $user->id,
+            'verified_at' => now(),
+            'rejection_note' => null,
+        ]);
+
+        return $this->success($goal, 'Goal verified and marked as achieved.');
+    }
+
+    /**
+     * Investor rejects a goal's proof — sends it back to In Progress.
+     */
+    public function rejectGoal(Request $request, $id)
+    {
+        $user = auth()->user();
+        if (!in_array($user->role, ['INVESTOR', 'ADMIN'])) {
+            return $this->error('Only investors or admins can reject goals.', 403);
+        }
+
+        $goal = Goal::findOrFail($id);
+
+        if (strtolower($goal->status) !== 'pending verification') {
+            return $this->error('This goal is not pending verification. Current status: ' . $goal->status, 422);
+        }
+
+        $validated = $request->validate([
+            'rejection_note' => 'nullable|string|max:500',
+        ]);
+
+        $goal->update([
+            'status' => 'In Progress',
+            'proof_verified' => false,
+            'verified_by' => null,
+            'verified_at' => null,
+            'rejection_note' => $validated['rejection_note'] ?? 'Proof was not sufficient. Please resubmit.',
+            'proof_note' => null,
+            'proof_document' => null,
+        ]);
+
+        return $this->success($goal, 'Goal proof rejected. SME can resubmit.');
     }
 
     public function destroy($id)
