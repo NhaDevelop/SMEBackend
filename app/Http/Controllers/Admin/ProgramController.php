@@ -15,7 +15,15 @@ class ProgramController extends Controller
 
     public function index()
     {
-        $programs = Program::with(['template'])->get()->map(function ($program) {
+        $user = auth('api')->user();
+        $query = Program::with(['template']);
+        
+        // If not admin, only show Published programs
+        if (!$user || $user->role !== 'ADMIN') {
+            $query->whereIn('status', ['Published', 'Active', 'Open']);
+        }
+
+        $programs = $query->get()->map(function ($program) {
             return $this->formatProgram($program);
         });
 
@@ -55,10 +63,12 @@ class ProgramController extends Controller
             'status' => 'nullable|string|in:Coming Soon,Published,Unpublished,Finished',
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date',
+            'enrollment_deadline' => 'nullable|date',
             'sector' => 'nullable|string',
             'duration' => 'nullable|string',
             'investment_amount' => 'nullable|string',
             'benefits' => 'nullable|array',
+            'thresholds' => 'nullable|array',
         ]);
 
         $program = Program::create(array_merge($validated, [
@@ -69,9 +79,13 @@ class ProgramController extends Controller
         return $this->success($this->formatProgram($program->load('template')), 'Program created successfully', 201);
     }
 
-    public function show($id)
+    public function show($idOrSlug)
     {
-        $program = Program::with(['template'])->findOrFail($id);
+        $program = Program::with(['template'])
+            ->where('id', $idOrSlug)
+            ->orWhere('slug', $idOrSlug)
+            ->firstOrFail();
+
         return $this->success($this->formatProgram($program));
     }
 
@@ -101,13 +115,15 @@ class ProgramController extends Controller
                     }
                 },
             ],
-            'status' => 'sometimes|string|in:Coming Soon,Published,Unpublished',
+            'status' => 'sometimes|string|in:Coming Soon,Published,Unpublished,Finished',
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date',
+            'enrollment_deadline' => 'nullable|date',
             'sector' => 'nullable|string',
             'duration' => 'nullable|string',
             'investment_amount' => 'nullable|string',
             'benefits' => 'nullable|array',
+            'thresholds' => 'nullable|array',
         ]);
 
         $program->update($validated);
@@ -141,6 +157,7 @@ class ProgramController extends Controller
             'templateId' => 'template_id',
             'startDate' => 'start_date',
             'endDate' => 'end_date',
+            'enrollmentDeadline' => 'enrollment_deadline',
             'investmentAmount' => 'investment_amount',
             'duration' => 'duration',
         ];
@@ -181,6 +198,7 @@ class ProgramController extends Controller
         return [
             'id' => $program->id,
             'name' => $program->name,
+            'slug' => $program->slug,
             'status' => $program->status,
             'description' => $program->description,
             'template' => $program->template ? $program->template->name : 'No Template',
@@ -191,10 +209,17 @@ class ProgramController extends Controller
             'progress' => $progress,
             'startDate' => $program->start_date ? $program->start_date->format('Y-m-d') : null,
             'endDate' => $program->end_date ? $program->end_date->format('Y-m-d') : null,
+            'enrollmentDeadline' => $program->enrollment_deadline ? $program->enrollment_deadline->format('Y-m-d H:i:s') : null,
+            'isEnrollmentClosed' => $program->isEnrollmentClosed(),
+            'isAssessmentPeriodOver' => $program->isAssessmentPeriodOver(),
+            'isFinished' => $program->isFinished(),
+            'isComingSoon' => $program->isComingSoon(),
             'duration' => $program->duration ?: $this->calculateDuration($program),
             'sector' => $program->sector,
             'investmentAmount' => $program->investment_amount,
             'benefits' => $program->benefits,
+            'thresholds' => $program->thresholds,
+            'createdAt' => $program->created_at ? $program->created_at->format('Y-m-d') : null,
         ];
     }
 
@@ -287,6 +312,21 @@ class ProgramController extends Controller
             return $this->forbidden('SME profile not found. Complete your profile before applying.');
         }
 
+        // Enforce: Program must not be Coming Soon
+        if ($program->isComingSoon()) {
+            return $this->error('This program has not started yet. Applications will open on ' . $program->start_date->format('Y-m-d'), 403);
+        }
+
+        // Enforce: Program must not be Finished
+        if ($program->isFinished()) {
+            return $this->error('This program has ended and is no longer accepting applications.', 403);
+        }
+
+        // Enforce: Enrollment deadline must not have passed
+        if ($program->isEnrollmentClosed()) {
+            return $this->error('The enrollment period for this program has closed. No new applications are being accepted.', 403);
+        }
+
         $existing = ProgramEnrollment::where('program_id', $program->id)
             ->where('sme_id', $smeProfile->id)
             ->first();
@@ -298,7 +338,7 @@ class ProgramController extends Controller
         $enrollment = ProgramEnrollment::create([
             'program_id'      => $program->id,
             'sme_id'          => $smeProfile->id,
-            'status'          => 'Enrolled', // Unified status
+            'status'          => 'Enrolled',
             'enrollment_date' => now()
         ]);
 

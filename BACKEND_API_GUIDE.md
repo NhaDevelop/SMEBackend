@@ -20,8 +20,6 @@ The backend uses **JWT (JSON Web Tokens)** for authentication.
     ```
 3. Always include `Accept: application/json` so Laravel returns proper JSON error messages (e.g., `422 Unprocessable Entity`) instead of trying to redirect.
 
----
-
 ## 👥 2. Mock Test Accounts (Ready to Use)
 
 The database has been seeded with three test accounts. Use these to log in and test your Nuxt UI.

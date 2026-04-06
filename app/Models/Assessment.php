@@ -7,13 +7,14 @@ use Illuminate\Database\Eloquent\Model;
 class Assessment extends Model
 {
     protected $fillable = [
-        'sme_id', 'template_id', 'status', 
+        'sme_id', 'template_id', 'program_id', 'status', 
         'total_score', 'questions_snapshot', 
         'started_at', 'completed_at'
     ];
 
     protected $casts = [
         'questions_snapshot' => 'array',
+        'program_id' => 'integer',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
         'total_score' => 'decimal:2'
@@ -27,6 +28,11 @@ class Assessment extends Model
     public function template()
     {
         return $this->belongsTo(Template::class);
+    }
+
+    public function program()
+    {
+        return $this->belongsTo(Program::class);
     }
 
     public function responses()

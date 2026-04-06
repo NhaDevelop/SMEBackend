@@ -18,7 +18,7 @@ class AuditLogController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate(15);
 
-        return response()->json($logs);
+        return $this->success($logs, 'Audit logs retrieved successfully');
     }
 
     /**
@@ -27,6 +27,6 @@ class AuditLogController extends Controller
     public function show($id)
     {
         $log = AuditLog::with('user:id,full_name,email')->findOrFail($id);
-        return response()->json($log);
+        return $this->success($log, 'Audit log retrieved successfully');
     }
 }

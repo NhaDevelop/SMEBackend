@@ -23,7 +23,6 @@ class ProgramCommentController extends Controller
 
         return $this->success($comments, 'Program comments retrieved successfully');
     }
-
     /**
      * POST /api/programs/{id}/comments
      * Post a new comment/discussion message in a program's forum.

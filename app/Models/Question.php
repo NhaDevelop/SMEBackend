@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Question extends Model
 {
+    use SoftDeletes;
     protected $fillable = [
         'template_id', 'pillar_id', 'text', 'type', 
         'weight', 'required', 'options', 'helper_text'

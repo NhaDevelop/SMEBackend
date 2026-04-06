@@ -40,10 +40,15 @@ class UserController extends Controller
             ['id' => 'pre', 'label' => 'Pre-Investment', 'min' => 0, 'max' => 39],
         ];
 
-        $smes = User::where('role', 'SME')
-            ->where('status', 'ACTIVE')
-            ->with(['smeProfile.enrollments', 'smeProfile.assessments.responses.question'])
-            ->get()
+        $query = User::where('role', 'SME')->where('status', 'ACTIVE')->with(['smeProfile.enrollments', 'smeProfile.assessments.responses.question']);
+
+        if ($programId) {
+            $query->whereHas('smeProfile.enrollments', function ($q) use ($programId) {
+                $q->where('program_id', $programId);
+            });
+        }
+
+        $smes = $query->get()
             ->map(function($user) use ($templateId, $thresholds) {
                 $profile = $user->smeProfile;
                 $enrollments = $profile ? $profile->enrollments : collect([]);

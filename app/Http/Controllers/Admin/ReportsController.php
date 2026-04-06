@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateBatchReportJob;
 use App\Models\Program;
 use App\Models\ProgramEnrollment;
 use App\Models\SmeProfile;
@@ -10,8 +11,10 @@ use App\Models\Assessment;
 use App\Models\Pillar;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class ReportsController extends Controller
 {
@@ -22,62 +25,67 @@ class ReportsController extends Controller
      */
     public function programs(Request $request)
     {
-        $programs = Program::with(['template'])->get()->map(function ($program) {
-            $enrollments = ProgramEnrollment::where('program_id', $program->id)
-                ->whereNotNull('sme_id')
-                ->with('smeProfile')
-                ->get();
-            
-            $totalSmes = $enrollments->count();
-            $completedAssessments = 0;
-            $totalScore = 0;
-            $smeScores = [];
+        $cacheKey = 'report_programs_v1';
 
-            foreach ($enrollments as $enrollment) {
-                $smeProfile = $enrollment->smeProfile;
-                if (!$smeProfile) continue;
+        $programs = Cache::remember($cacheKey, now()->addMinutes(10), function () {
+            // ✅ FIX N+1: eager-load template + enrollments with their smeProfile & assessments in one shot
+            $allPrograms = Program::with([
+                'template',
+                'enrollments' => fn($q) => $q->whereNotNull('sme_id'),
+                'enrollments.smeProfile.user',
+                'enrollments.smeProfile.assessments',
+            ])->get();
 
-                // Get latest assessment for this SME
-                $assessment = Assessment::where('sme_id', $smeProfile->id)
-                    ->where('template_id', $program->template_id)
-                    ->where('status', 'Completed')
-                    ->latest()
-                    ->first();
+            return $allPrograms->map(function ($program) {
+                $enrollments          = $program->enrollments;
+                $totalSmes            = $enrollments->count();
+                $completedAssessments = 0;
+                $totalScore           = 0;
+                $smeScores            = [];
 
-                if ($assessment) {
-                    $completedAssessments++;
-                    $totalScore += $assessment->total_score;
-                    
-                    // Calculate pillar scores
-                    $pillarScores = $this->calculatePillarScores($assessment);
-                    
-                    $smeScores[] = [
-                        'sme_id' => $smeProfile->id,
-                        'sme_name' => $smeProfile->company_name,
-                        'user_name' => $smeProfile->user?->full_name,
-                        'email' => $smeProfile->user?->email,
-                        'industry' => $smeProfile->industry,
-                        'assessment_id' => $assessment->id,
-                        'total_score' => $assessment->total_score,
-                        'risk_level' => $assessment->risk_level,
-                        'completed_at' => $assessment->completed_at?->format('Y-m-d'),
-                        'pillar_scores' => $pillarScores
-                    ];
+                foreach ($enrollments as $enrollment) {
+                    $smeProfile = $enrollment->smeProfile;
+                    if (!$smeProfile) continue;
+
+                    // Already eager-loaded — no extra query
+                    $assessment = $smeProfile->assessments
+                        ->where('template_id', $program->template_id)
+                        ->where('status', 'Completed')
+                        ->sortByDesc('created_at')
+                        ->first();
+
+                    if ($assessment) {
+                        $completedAssessments++;
+                        $totalScore += $assessment->total_score;
+                        $pillarScores = $this->calculatePillarScores($assessment);
+                        $smeScores[] = [
+                            'sme_id'       => $smeProfile->id,
+                            'sme_name'     => $smeProfile->company_name,
+                            'user_name'    => $smeProfile->user?->full_name,
+                            'email'        => $smeProfile->user?->email,
+                            'industry'     => $smeProfile->industry,
+                            'assessment_id' => $assessment->id,
+                            'total_score'  => $assessment->total_score,
+                            'risk_level'   => $assessment->risk_level,
+                            'completed_at' => $assessment->completed_at?->format('Y-m-d'),
+                            'pillar_scores' => $pillarScores,
+                        ];
+                    }
                 }
-            }
 
-            return [
-                'id' => $program->id,
-                'name' => $program->name,
-                'description' => $program->description,
-                'status' => $program->status,
-                'sector' => $program->sector,
-                'template_name' => $program->template?->name,
-                'total_smes' => $totalSmes,
-                'completed_assessments' => $completedAssessments,
-                'avg_score' => $completedAssessments > 0 ? round($totalScore / $completedAssessments, 2) : 0,
-                'sme_scores' => $smeScores
-            ];
+                return [
+                    'id'                    => $program->id,
+                    'name'                  => $program->name,
+                    'description'           => $program->description,
+                    'status'                => $program->status,
+                    'sector'                => $program->sector,
+                    'template_name'         => $program->template?->name,
+                    'total_smes'            => $totalSmes,
+                    'completed_assessments' => $completedAssessments,
+                    'avg_score'             => $completedAssessments > 0 ? round($totalScore / $completedAssessments, 2) : 0,
+                    'sme_scores'            => $smeScores,
+                ];
+            });
         });
 
         return $this->success($programs, 'Programs report retrieved successfully');
@@ -94,8 +102,13 @@ class ReportsController extends Controller
         $programId        = $request->input('program_id');
         $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
 
-        // Build base query — scope to enrolled SMEs when a program filter is active
-        $query = SmeProfile::with(['user']);
+        // ✅ FIX N+1: eager-load assessments and enrollments up-front
+        $query = SmeProfile::with([
+            'user',
+            'assessments',
+            'enrollments.program',
+        ]);
+
         if ($programId) {
             $enrolledSmeIds = ProgramEnrollment::where('program_id', $programId)
                 ->whereNotNull('sme_id')
@@ -104,41 +117,33 @@ class ReportsController extends Controller
         }
 
         $smes = $query->get()->map(function ($sme) use ($programId, $targetTemplateId) {
-            // Latest assessment — scoped to program template when filter is active
-            if ($targetTemplateId) {
-                $latestAssessment = Assessment::where('sme_id', $sme->id)
-                    ->where('template_id', $targetTemplateId)
-                    ->where('status', 'Completed')
-                    ->latest('completed_at')
-                    ->first();
-            } else {
-                $latestAssessment = Assessment::where('sme_id', $sme->id)
-                    ->where('status', 'Completed')
-                    ->latest('completed_at')
-                    ->first();
-            }
+            // ✅ Filter from already-loaded assessments — no extra DB queries
+            $completedAssessments = $sme->assessments->where('status', 'Completed');
 
-            // Per-program scores list
-            $programs = ProgramEnrollment::where('sme_id', $sme->id)
-                ->with('program')
-                ->get()
-                ->map(function ($enrollment) use ($sme) {
-                    $program    = $enrollment->program;
-                    $assessment = Assessment::where('sme_id', $sme->id)
-                        ->where('template_id', $program->template_id)
-                        ->where('status', 'Completed')
-                        ->latest()
-                        ->first();
-                    return [
-                        'program_id'        => $program->id,
-                        'program_name'      => $program->name,
-                        'enrollment_status' => $enrollment->status,
-                        'enrollment_date'   => $enrollment->enrollment_date?->format('Y-m-d'),
-                        'assessment_score'  => $assessment?->total_score,
-                        'assessment_status' => $assessment?->status,
-                        'completed_at'      => $assessment?->completed_at?->format('Y-m-d'),
-                    ];
-                });
+            $latestAssessment = $targetTemplateId
+                ? $completedAssessments->where('template_id', $targetTemplateId)->sortByDesc('completed_at')->first()
+                : $completedAssessments->sortByDesc('completed_at')->first();
+
+            // Per-program scores list — also from eager-loaded data
+            $programs = $sme->enrollments->map(function ($enrollment) use ($sme) {
+                $program    = $enrollment->program;
+                // Already in $sme->assessments — filter in PHP
+                $assessment = $sme->assessments
+                    ->where('template_id', $program?->template_id)
+                    ->where('status', 'Completed')
+                    ->sortByDesc('created_at')
+                    ->first();
+
+                return [
+                    'program_id'        => $program?->id,
+                    'program_name'      => $program?->name,
+                    'enrollment_status' => $enrollment->status,
+                    'enrollment_date'   => $enrollment->enrollment_date?->format('Y-m-d'),
+                    'assessment_score'  => $assessment?->total_score,
+                    'assessment_status' => $assessment?->status,
+                    'completed_at'      => $assessment?->completed_at?->format('Y-m-d'),
+                ];
+            });
 
             $pillarScores = $latestAssessment ? $this->calculatePillarScores($latestAssessment) : [];
 
@@ -152,12 +157,9 @@ class ReportsController extends Controller
                 'registration_number' => $sme->registration_number,
                 'years_in_operation'  => $sme->years_in_operation,
                 'total_employees'     => $sme->total_employees,
-                // When program filter active: null if not yet assessed
-                'latest_score'        => $latestAssessment
-                    ? round((float) $latestAssessment->total_score, 1)
-                    : null,
-                'latest_risk_level'   => $latestAssessment 
-                    ? $latestAssessment->risk_level 
+                'latest_score'        => $latestAssessment ? round((float) $latestAssessment->total_score, 1) : null,
+                'latest_risk_level'   => $latestAssessment
+                    ? $latestAssessment->risk_level
                     : ($targetTemplateId ? 'Not Assessed' : null),
                 'last_assessed'       => $latestAssessment?->completed_at?->format('Y-m-d'),
                 'programs'            => $programs,
@@ -176,10 +178,12 @@ class ReportsController extends Controller
     {
         $programId        = $request->input('program_id');
         $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
+        $cacheKey         = 'report_scores_' . ($programId ?? 'all');
 
+        // ✅ Cache score distribution for 10 minutes to avoid repeated full-table scans
+        $cached = Cache::remember($cacheKey, now()->addMinutes(10), function () use ($programId, $targetTemplateId) {
         $query = Assessment::where('status', 'Completed');
         if ($targetTemplateId) {
-            // Only one assessment row per SME (latest) for the target template
             $smeIds = ProgramEnrollment::where('program_id', $programId)
                 ->whereNotNull('sme_id')->pluck('sme_id');
             $query->where('template_id', $targetTemplateId)->whereIn('sme_id', $smeIds);
@@ -242,13 +246,16 @@ class ReportsController extends Controller
             ];
         }
 
-        return $this->success([
+        return [
             'total_assessments'  => $totalAssessments,
             'avg_score'          => $avgScore,
             'score_distribution' => $distribution,
             'by_program'         => $byProgram,
             'by_pillar'          => $byPillar,
-        ], 'Scores report retrieved successfully');
+        ];
+        }); // end Cache::remember
+
+        return $this->success($cached, 'Scores report retrieved successfully');
     }
 
     /**
@@ -259,11 +266,25 @@ class ReportsController extends Controller
         $type = $request->input('type', 'sme'); // 'sme' or 'program'
         $id = $request->input('id');
         $format = $request->input('format', 'pdf'); // 'pdf' or 'excel'
+        $user = auth('api')->user();
 
         if ($type === 'sme' && $id) {
             // Generate individual SME report
             $sme = SmeProfile::with(['user', 'assessments'])->where('user_id', $id)->firstOrFail();
             $data = $this->generateSmeReportData($sme);
+
+            \App\Models\AuditLog::create([
+                'user_id' => $user->id ?? null,
+                'action' => 'EXPORTED_DATA',
+                'target_entity' => 'SmeProfile',
+                'target_id' => $sme->id,
+                'details' => json_encode([
+                    'report_type' => 'CSV Export',
+                    'sme_name' => $sme->company_name,
+                    'format' => $format
+                ]),
+                'ip_address' => $request->ip()
+            ]);
             
             return $this->success([
                 'type' => 'sme',
@@ -336,7 +357,9 @@ class ReportsController extends Controller
         // If token provided via query, validate it — allow both ADMIN and INVESTOR
         if ($token) {
             try {
-                $user = Auth::guard('api')->setToken($token)->authenticate();
+                /** @var \Tymon\JWTAuth\JWTGuard $guard */
+                $guard = Auth::guard('api');
+                $user = $guard->setToken($token)->authenticate();
                 if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
                     return $this->error('Unauthorized', 401);
                 }
@@ -347,10 +370,27 @@ class ReportsController extends Controller
             return $this->error('Authentication required', 401);
         }
 
+        $user = auth('api')->user() ?? ($token ? $user : null);
+        
         // The frontend passes the User ID as smeId
         $sme = SmeProfile::with(['user', 'assessments'])->where('user_id', '=', $smeId)->firstOrFail();
         $program = $programId ? Program::with('template')->find($programId) : null;
         $data = $this->generateSmeReportData($sme, $program);
+
+        // ✅ Log report generation
+        \App\Models\AuditLog::create([
+            'user_id' => $user->id ?? null,
+            'action' => 'GENERATED_REPORT',
+            'target_entity' => 'SmeProfile',
+            'target_id' => $sme->id,
+            'details' => json_encode([
+                'report_type' => 'Investment Readiness Report',
+                'sme_name' => $sme->company_name,
+                'program_id' => $programId,
+                'format' => 'PDF'
+            ]),
+            'ip_address' => $request->ip()
+        ]);
 
         // Return as HTML that can be printed to PDF
         $html = $this->generateReadinessReportHtml($data, $program);
@@ -368,12 +408,13 @@ class ReportsController extends Controller
     {
         // Check for token in query param (for new-tab downloads) or normal auth
         $token = $request->input('token');
-        $programId = $request->input('programId'); // Optional: scope to a specific program
+        $programId = $request->input('programId');
         
-        // If token provided via query, validate it — allow both ADMIN and INVESTOR
         if ($token) {
             try {
-                $user = Auth::guard('api')->setToken($token)->authenticate();
+                /** @var \Tymon\JWTAuth\JWTGuard $guard */
+                $guard = Auth::guard('api');
+                $user = $guard->setToken($token)->authenticate();
                 if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
                     return $this->error('Unauthorized', 401);
                 }
@@ -384,28 +425,90 @@ class ReportsController extends Controller
             return $this->error('Authentication required', 401);
         }
 
+        $user = auth('api')->user() ?? ($token ? $user : null);
+
         $program = $programId ? Program::with('template')->find($programId) : null;
 
-        if ($program) {
-            // Only include SMEs enrolled in this program
-            $smeIds = ProgramEnrollment::where('program_id', $program->id)
-                ->whereNotNull('sme_id')
-                ->pluck('sme_id');
-            $allSmes = SmeProfile::with(['user', 'assessments'])->whereIn('id', $smeIds)->get();
-        } else {
-            $allSmes = SmeProfile::with(['user', 'assessments'])->get();
+        // ✅ For large batches (> 20 SMEs), dispatch to background queue instead of blocking
+        $smeCount = $program
+            ? ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count()
+            : SmeProfile::count();
+
+        if ($smeCount > 20) {
+            // Generate a unique key so the frontend can poll for status
+            $reportKey = 'batch_report_' . Str::uuid();
+            Cache::put($reportKey . '_status', 'processing', now()->addMinutes(30));
+
+            GenerateBatchReportJob::dispatch($reportKey, $programId)
+                ->onQueue('default');
+
+            return $this->success([
+                'async'      => true,
+                'report_key' => $reportKey,
+                'message'    => 'Report is being generated in the background. Poll /api/admin/reports/status?key=' . $reportKey . ' for updates.',
+            ], 'Large report queued for background processing');
         }
 
-        $allSmeData = $allSmes->map(function ($sme) use ($program) {
-            return $this->generateSmeReportData($sme, $program);
-        });
+        // ✅ For small batches: generate inline (fast, no queue needed)
+        if ($program) {
+            $smeIds  = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->pluck('sme_id');
+            $allSmes = SmeProfile::with(['user', 'assessments.template'])->whereIn('id', $smeIds)->get();
+        } else {
+            $allSmes = SmeProfile::with(['user', 'assessments.template'])->get();
+        }
 
-        $html = $this->generatePortfolioReportHtml($allSmeData, $program);
-        
-        return response($html, 200, [
-            'Content-Type' => 'text/html',
-            'Content-Disposition' => 'inline; filename="portfolio-report.html"'
+        $allSmeData = $allSmes->map(fn($sme) => $this->generateSmeReportData($sme, $program));
+        $html       = $this->generatePortfolioReportHtml($allSmeData, $program);
+
+        // ✅ Log portfolio report generation
+        \App\Models\AuditLog::create([
+            'user_id' => $user->id ?? null,
+            'action' => 'GENERATED_PORTFOLIO_REPORT',
+            'target_entity' => 'Program',
+            'target_id' => $programId,
+            'details' => json_encode([
+                'report_type' => 'Portfolio Comparison',
+                'program_name' => $program ? $program->name : 'All Programs',
+                'format' => 'PDF'
+            ]),
+            'ip_address' => $request->ip()
         ]);
+
+        return response($html, 200, [
+            'Content-Type'        => 'text/html',
+            'Content-Disposition' => 'inline; filename="portfolio-report.html"',
+        ]);
+    }
+
+    /**
+     * GET /api/admin/reports/status?key={key}
+     * Poll this endpoint to check if a background batch report is ready.
+     */
+    public function reportStatus(Request $request)
+    {
+        $key    = $request->input('key');
+        $status = Cache::get($key . '_status', 'not_found');
+
+        if ($status === 'ready') {
+            // Data is in cache — return it and clean up
+            $data = Cache::get($key . '_data', []);
+            Cache::forget($key . '_status');
+            Cache::forget($key . '_data');
+
+            // Build and return the HTML report
+            $programId = $request->input('programId');
+            $program   = $programId ? Program::with('template')->find($programId) : null;
+            $html      = $this->generatePortfolioReportHtml(collect($data), $program);
+
+            return response($html, 200, [
+                'Content-Type'        => 'text/html',
+                'Content-Disposition' => 'inline; filename="portfolio-report.html"',
+            ]);
+        }
+
+        return $this->success([
+            'status'  => $status, // 'processing' | 'ready' | 'failed' | 'not_found'
+        ], 'Report status retrieved');
     }
 
     /**

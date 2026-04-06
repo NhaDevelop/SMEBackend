@@ -69,15 +69,51 @@ class GoalController extends Controller
     public function index(Request $request)
     {
         $user = auth()->user();
-        $smeId = $request->query('sme_id');
+        $smeUserId = $request->query('sme_id');
+        $smeId = null;
+        if ($smeUserId) {
+            // Frontend route /sme/[id] uses the User ID, but Goal table uses SmeProfile ID
+            $profile = \App\Models\SmeProfile::where('user_id', $smeUserId)->first();
+            $smeId = $profile ? $profile->id : $smeUserId;
+        }
 
         if ($user->smeProfile) {
             $goals = Goal::query()->with(['smeProfile', 'smeProfile.user', 'createdBy'])
                 ->where('sme_id', $user->smeProfile->id)
                 ->latest()
                 ->get();
-        } elseif ($user->role === 'ADMIN' || $user->role === 'INVESTOR') {
-            $goals = Goal::query()->with(['smeProfile', 'smeProfile.user', 'createdBy'])->latest()->get();
+        } elseif ($user->role === 'INVESTOR') {
+            $query = Goal::query()->with(['smeProfile', 'smeProfile.user', 'createdBy']);
+            if ($smeId) {
+                // Viewing a specific SME profile details: Only their Achieved self-created goals + This Investor's assigned goals
+                $query->where('sme_id', $smeId)
+                      ->where(function($q) use ($user) {
+                          $q->where('created_by', $user->id)
+                            ->orWhere(function($subQ) {
+                                $subQ->whereHas('createdBy', function($roleQ) {
+                                        $roleQ->where('role', 'SME');
+                                     })
+                                     ->where('status', 'Achieved');
+                            });
+                      });
+            } else {
+                // Viewing the main goals page: strictly investor's assigned goals
+                $query->where('created_by', $user->id);
+            }
+            $goals = $query->latest()->get();
+        } elseif ($user->role === 'ADMIN') {
+            $query = Goal::query()->with(['smeProfile', 'smeProfile.user', 'createdBy']);
+            if ($smeId) {
+                // Viewing a specific SME profile details: All Investor goals + SME's Achieved goals
+                $query->where('sme_id', $smeId)
+                      ->where(function($q) {
+                          $q->whereHas('createdBy', function($roleQ) {
+                                $roleQ->where('role', '!=', 'SME');
+                            })
+                            ->orWhere('status', 'Achieved'); // SME self-created and achieved
+                      });
+            }
+            $goals = $query->latest()->get();
         } else {
             return $this->success([], 'No goals found');
         }
@@ -254,7 +290,18 @@ class GoalController extends Controller
             $status = $validated['status'];
             if (strtolower($status) === 'achieved') $validated['status'] = 'Achieved';
             if (strtolower($status) === 'completed') $validated['status'] = 'Achieved';
-            if (strtolower($status) === 'pending verification') $validated['status'] = 'Pending Verification';
+            if (strtolower($status) === 'pending verification') {
+                // If it's a self-created goal being completed, automatically verify and achieve
+                if ($goal->createdBy && $goal->createdBy->role === 'SME' && $goal->created_by == $user->id) {
+                    $validated['status'] = 'Achieved';
+                    $validated['proof_verified'] = true;
+                    $validated['verified_by'] = $user->id; // Using SME ID acts as self-verified
+                    $validated['verified_at'] = now();
+                    $validated['progress_percentage'] = 100;
+                } else {
+                    $validated['status'] = 'Pending Verification';
+                }
+            }
             if (strtolower($status) === 'active') $validated['status'] = 'Active';
             if (strtolower($status) === 'in progress') $validated['status'] = 'In Progress';
         }
@@ -275,8 +322,13 @@ class GoalController extends Controller
 
         $goal = Goal::findOrFail($id);
         
-        if (strtolower($goal->status) !== 'pending verification') {
+        $currentStatus = strtolower(trim($goal->status));
+        if ($currentStatus !== 'pending verification' && $currentStatus !== 'achieved') {
             return $this->error('This goal is not pending verification. Current status: ' . $goal->status, 422);
+        }
+
+        if ($currentStatus === 'achieved') {
+            return $this->success($goal, 'Goal was already verified and achieved.');
         }
 
         $goal->update([
@@ -285,6 +337,7 @@ class GoalController extends Controller
             'verified_by' => $user->id,
             'verified_at' => now(),
             'rejection_note' => null,
+            'progress_percentage' => 100,
         ]);
 
         return $this->success($goal, 'Goal verified and marked as achieved.');
@@ -302,7 +355,8 @@ class GoalController extends Controller
 
         $goal = Goal::findOrFail($id);
 
-        if (strtolower($goal->status) !== 'pending verification') {
+        $currentStatus = strtolower(trim($goal->status));
+        if ($currentStatus !== 'pending verification') {
             return $this->error('This goal is not pending verification. Current status: ' . $goal->status, 422);
         }
 

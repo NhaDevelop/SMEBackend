@@ -131,4 +131,72 @@ trait AssessmentScoring
 
         return $gaps->toArray();
     }
+
+    /**
+     * Generate detailed SME report data (shared by controller + background job).
+     * Optionally scoped to a specific program template.
+     */
+    protected function generateSmeReportData($sme, $program = null): array
+    {
+        // If scoped to a program, use that program's template_id
+        if ($program && $program->template_id) {
+            $latestAssessment = $sme->assessments
+                ->where('template_id', $program->template_id)
+                ->where('status', 'Completed')
+                ->sortByDesc('created_at')
+                ->first();
+        } else {
+            $latestAssessment = $sme->assessments
+                ->where('status', 'Completed')
+                ->sortByDesc('created_at')
+                ->first();
+        }
+
+        $pillarScores = $latestAssessment ? $this->calculatePillarScores($latestAssessment) : [];
+
+        // Assessment history (already eager-loaded via assessments relation)
+        $assessmentHistory = $sme->assessments
+            ->where('status', 'Completed')
+            ->sortByDesc('completed_at')
+            ->map(function ($assessment) {
+                return [
+                    'assessment_id' => $assessment->id,
+                    'template_name' => $assessment->template?->name,
+                    'total_score'   => round($assessment->total_score, 1),
+                    'risk_level'    => $assessment->risk_level,
+                    'completed_at'  => $assessment->completed_at?->format('Y-m-d'),
+                ];
+            })->values();
+
+        // Programs enrolled (from eager-loaded enrollments)
+        $programs = $sme->enrollments->map(function ($enrollment) {
+            return [
+                'program_name' => $enrollment->program?->name,
+                'status'       => $enrollment->status,
+                'enrolled_at'  => $enrollment->enrollment_date?->format('Y-m-d'),
+            ];
+        });
+
+        return [
+            'company_info' => [
+                'company_name'        => $sme->company_name,
+                'registration_number' => $sme->registration_number ?? '—',
+                'industry'            => $sme->industry ?? '—',
+                'years_in_operation'  => $sme->years_in_operation ?? '—',
+                'total_employees'     => $sme->total_employees ?? '—',
+                'contact_person'      => $sme->user?->full_name ?? '—',
+                'email'               => $sme->user?->email ?? '—',
+                'phone'               => $sme->user?->phone ?? '—',
+            ],
+            'latest_assessment' => $latestAssessment ? [
+                'score'               => round($latestAssessment->total_score, 1),
+                'risk_level'          => $latestAssessment->risk_level ?? $this->getRiskLabel($latestAssessment->total_score),
+                'completed_at'        => $latestAssessment->completed_at?->format('Y-m-d'),
+                'pillar_scores'       => $pillarScores,
+                'recommended_actions' => $this->calculateTopActions($latestAssessment, 3),
+            ] : null,
+            'assessment_history' => $assessmentHistory,
+            'programs'           => $programs,
+        ];
+    }
 }

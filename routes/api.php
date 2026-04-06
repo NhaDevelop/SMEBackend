@@ -5,6 +5,8 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\AuditLogController;
 
 Route::get('sectors', [\App\Http\Controllers\Admin\SectorController::class, 'index']);
+Route::get('programs', [\App\Http\Controllers\Admin\ProgramController::class, 'index']);
+Route::get('programs/{id}', [\App\Http\Controllers\Admin\ProgramController::class, 'show']);
 
 Route::group(['prefix' => 'auth'], function () {
     Route::post('register', [AuthController::class, 'register']);
@@ -14,6 +16,8 @@ Route::group(['prefix' => 'auth'], function () {
     Route::middleware('auth:api')->group(
         function () {
             Route::get('profile', [AuthController::class, 'profile']);
+            Route::post('logout', [AuthController::class, 'logout']);
+            Route::post('refresh', [AuthController::class, 'refresh']);
             Route::patch('profile', [\App\Http\Controllers\ProfileController::class, 'updateGeneralProfile']);
             Route::patch('sme/profile', [\App\Http\Controllers\ProfileController::class, 'updateSme']);
             Route::patch('investor/profile', [\App\Http\Controllers\ProfileController::class, 'updateInvestor']);
@@ -82,6 +86,8 @@ Route::group(['prefix' => 'admin', 'middleware' => ['auth:api', 'role:ADMIN']], 
 // Public report download routes — token auth is handled inside the controller
 Route::get('admin/reports/readiness', [\App\Http\Controllers\Admin\ReportsController::class, 'readiness']);
 Route::get('admin/reports/portfolio', [\App\Http\Controllers\Admin\ReportsController::class, 'portfolio']);
+// ✅ NEW: Poll for background batch report status (returns 'processing' | 'ready' | 'failed')
+Route::get('admin/reports/status', [\App\Http\Controllers\Admin\ReportsController::class, 'reportStatus']);
 
 
 // SME & Investor Shared/Specific Routes (Protected by Auth)
@@ -141,7 +147,7 @@ Route::middleware('auth:api')->group(function () {
     Route::post('documents', [App\Http\Controllers\DocumentController::class, 'store']);
     Route::get('documents/{id}', [App\Http\Controllers\DocumentController::class, 'show']);
     Route::delete('documents/{id}', [App\Http\Controllers\DocumentController::class, 'destroy']);
-    
+
     // Shared Data (Authenticated but role-neutral)
     Route::get('settings', [\App\Http\Controllers\Admin\SettingController::class, 'index']);
     Route::get('users/discovery', [\App\Http\Controllers\Admin\UserController::class, 'getApprovedUsers']);

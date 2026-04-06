@@ -62,19 +62,26 @@ class SmeDashboardController extends Controller
 
         $profile = $user->smeProfile;
 
-        // 1. Fetch Latest Assessment & Responses
-        $latestAssessment = Assessment::where('sme_id', $profile->id)
+        // 1. Fetch Latest Assessment & Responses (now with program association)
+        $latestAssessment = Assessment::with('program')
+            ->where('sme_id', $profile->id)
             ->where('status', 'Completed')
             ->latest()
             ->first();
 
         $settings = \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
-        $thresholds = $settings ? ($settings->value['thresholds'] ?? []) : [
+        $globalThresholds = $settings ? ($settings->value['thresholds'] ?? []) : [
             ['id' => 'investor', 'label' => 'Investment Ready', 'min' => 80, 'max' => 100],
             ['id' => 'near', 'label' => 'Near Ready', 'min' => 60, 'max' => 79],
             ['id' => 'early', 'label' => 'Early Stage', 'min' => 40, 'max' => 59],
             ['id' => 'pre', 'label' => 'Pre-Investment', 'min' => 0, 'max' => 39],
         ];
+
+        // --- NEW: Use program-specific thresholds if available ---
+        $thresholds = ($latestAssessment && $latestAssessment->program && !empty($latestAssessment->program->thresholds))
+            ? $latestAssessment->program->thresholds
+            : $globalThresholds;
+        // --- END THRESHOLDS LOGIC ---
 
         $pillarStats = [];
         if ($latestAssessment) {

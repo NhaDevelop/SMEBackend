@@ -30,9 +30,9 @@ class DashboardController extends Controller
             'avgScore' => \App\Models\Assessment::where('status', 'COMPLETED')->avg('total_score') ?? 0,
         ];
 
-        return response()->json([
-            'stats' => array_merge($userStats, $programStats),
+        return $this->success([
+            'stats'       => array_merge($userStats, $programStats),
             'recentUsers' => User::latest()->limit(5)->get(),
-        ]);
+        ], 'Dashboard statistics retrieved successfully');
     }
 }

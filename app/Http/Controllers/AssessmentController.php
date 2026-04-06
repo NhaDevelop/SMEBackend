@@ -30,7 +30,8 @@ class AssessmentController extends Controller
     public function start(Request $request)
     {
         $validated = $request->validate([
-            'template_id' => 'required|exists:templates,id'
+            'template_id' => 'required|exists:templates,id',
+            'program_id'  => 'nullable|exists:programs,id'
         ]);
 
         $user = auth()->user();
@@ -41,9 +42,32 @@ class AssessmentController extends Controller
             return $this->forbidden('SME profile not found. Please complete your profile before starting an assessment.');
         }
 
+        // Check if the program associated with this template has expired
+        // If program_id is provided, use it; otherwise, fall back to matching by template_id
+        $program = null;
+        if (!empty($validated['program_id'])) {
+            $program = \App\Models\Program::find($validated['program_id']);
+        } else {
+            $program = \App\Models\Program::where('template_id', $validated['template_id'])->first();
+        }
+
+        if ($program) {
+            if ($program->isFinished()) {
+                return $this->forbidden('This program has ended. The assessment period is now closed and no new assessments can be started.');
+            }
+            // Also verify the SME is still enrolled and their enrollment is valid
+            $enrollment = \App\Models\ProgramEnrollment::where('program_id', $program->id)
+                ->where('sme_id', $user->smeProfile->id)
+                ->first();
+            if (!$enrollment) {
+                return $this->forbidden('You are not enrolled in the program associated with this assessment template.');
+            }
+        }
+
         $assessment = Assessment::create([
             'sme_id'      => $user->smeProfile->id,
             'template_id' => $validated['template_id'],
+            'program_id'  => $program ? $program->id : null,
             'status'      => 'In Progress',
             'started_at'  => now()
         ]);
@@ -71,6 +95,14 @@ class AssessmentController extends Controller
 
         $assessment = Assessment::where('sme_id', $user->smeProfile->id)->findOrFail($id);
         $template = Template::findOrFail($assessment->template_id);
+
+        // --- NEW: Security Check — is the program associated with this template finished? ---
+        $program = \App\Models\Program::where('template_id', $template->id)->first();
+        if ($program && $program->isFinished()) {
+            return $this->forbidden('This assessment can no longer be submitted because the associated program has ended.');
+        }
+        // --- END SECURITY CHECK ---
+
         $questions = Question::where('template_id', $template->id)->get()->keyBy('id');
 
         return DB::transaction(function () use ($assessment, $template, $questions, $validated) {

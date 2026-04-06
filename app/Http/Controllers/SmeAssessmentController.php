@@ -69,6 +69,11 @@ class SmeAssessmentController extends Controller
                 'avgScore' => $avgScore,
                 'smesCount' => $totalSmes,
                 'investorsCount' => $totalInvestors,
+                'isEnrollmentClosed' => $program->isEnrollmentClosed(),
+                'isAssessmentPeriodOver' => $program->isAssessmentPeriodOver(),
+                'isFinished' => $program->isFinished(),
+                'isComingSoon' => $program->isComingSoon(),
+                'enrollmentDeadline' => $program->enrollment_deadline ? $program->enrollment_deadline->format('Y-m-d H:i:s') : null,
             ];
         });
 
@@ -109,6 +114,29 @@ class SmeAssessmentController extends Controller
         if (!$template) {
             return $this->error('Template not found', 404);
         }
+
+        // --- NEW: Security Check — is the program associated with this template finished? ---
+        $user = auth()->user();
+        if ($user && $user->smeProfile) {
+            // Find programs using this template that the user is enrolled in
+            $programs = Program::where('template_id', $templateId)
+                ->whereHas('enrollments', function ($query) use ($user) {
+                    $query->where('sme_id', $user->smeProfile->id);
+                })
+                ->get();
+
+            if ($programs->count() > 0) {
+                // If ALL programs associated with this template (where the user is enrolled) are finished, block access.
+                $allFinished = $programs->every(function ($program) {
+                    return $program->isFinished();
+                });
+
+                if ($allFinished) {
+                    return $this->error('This assessment is no longer available because the associated program has ended.', 403);
+                }
+            }
+        }
+        // --- END SECURITY CHECK ---
 
         // Return a flat list of questions as expected by the frontend
         $questions = Question::where('template_id', $templateId)
@@ -192,6 +220,11 @@ class SmeAssessmentController extends Controller
                 'avgScore' => $avgScore,
                 'smesCount' => $totalSmes,
                 'investorsCount' => $totalInvestors,
+                'isEnrollmentClosed' => $program->isEnrollmentClosed(),
+                'isAssessmentPeriodOver' => $program->isAssessmentPeriodOver(),
+                'isFinished' => $program->isFinished(),
+                'isComingSoon' => $program->isComingSoon(),
+                'enrollmentDeadline' => $program->enrollment_deadline ? $program->enrollment_deadline->format('Y-m-d H:i:s') : null,
             ];
         });
 

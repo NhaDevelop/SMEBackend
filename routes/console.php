@@ -9,4 +9,5 @@ Artisan::command('inspire', function () {
 
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command('programs:close-finished')->daily();
+// Run daily: auto-finish programs and templates whose end_date has passed
+Schedule::command('programs:check-deadlines')->daily();

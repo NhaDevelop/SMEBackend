@@ -25,7 +25,7 @@ class VerificationRequestController extends Controller
                 ];
             });
 
-        return response()->json($requests);
+        return $this->success($requests, 'Verification requests retrieved successfully');
     }
 
     public function store(Request $request)
@@ -38,7 +38,7 @@ class VerificationRequestController extends Controller
         ]);
 
         $verificationRequest = VerificationRequest::create($validated);
-        return response()->json($verificationRequest, 201);
+        return $this->success($verificationRequest, 'Verification request created', 201);
     }
 
     public function update(Request $request, $id)
@@ -52,9 +52,8 @@ class VerificationRequestController extends Controller
 
         $verificationRequest->update($validated);
         
-        return response()->json([
-            'message' => 'Verification request status updated',
+        return $this->success([
             'request' => $verificationRequest
-        ]);
+        ], 'Verification request status updated');
     }
 }

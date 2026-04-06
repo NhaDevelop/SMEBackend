@@ -86,4 +86,32 @@ class TemplateController extends Controller
 
         return $this->success($template, "Template status updated to {$validated['status']}");
     }
+
+    public function destroy($id)
+    {
+        $template = Template::findOrFail($id);
+
+        // Security Check: Is it used in any Program?
+        $isInProgram = \App\Models\Program::where('template_id', $id)->exists();
+        if ($isInProgram) {
+            return $this->error('Cannot delete: This template is currently assigned to one or more programs.', 422);
+        }
+
+        // Security Check: Are there any SME Assessments using this?
+        $hasAssessments = \App\Models\Assessment::where('template_id', $id)->exists();
+        if ($hasAssessments) {
+            return $this->error('Cannot delete: This template has existing SME assessments. Archiving is recommended instead of deletion to preserve data history.', 422);
+        }
+
+        // 1. Mark as Archived (Logical status)
+        $template->update(['status' => 'Archived']);
+
+        // 2. Cascade Soft Delete to Questions
+        $template->questions()->delete();
+
+        // 3. Soft Delete the Template
+        $template->delete();
+
+        return $this->success(null, 'Template and its questions have been securely archived and soft-deleted.');
+    }
 }

@@ -262,10 +262,10 @@ class InvestorController extends Controller
             ->filter()   // remove nulls (SMEs without profiles)
             ->values();
 
-        return response()->json([
+        return $this->success([
             'data' => $smes,
             'thresholds' => $thresholds,
-        ]);
+        ], 'Dealflow retrieved successfully');
     }
 
     /**
@@ -377,7 +377,7 @@ class InvestorController extends Controller
 
         $avgScore = $smes->avg('score') ?? 0;
 
-        return response()->json([
+        return $this->success([
             'total_portfolio' => $portfolioCount,
             'average_readiness' => round($avgScore, 2),
             'sector_distribution' => SmeProfile::whereIn('user_id', (clone $query)->pluck('id'))
@@ -390,7 +390,7 @@ class InvestorController extends Controller
             // Nuxt compat keys
             'activeDealFlow' => $portfolioCount,
             'avgReadinessScore' => round($avgScore, 1),
-        ]);
+        ], 'Analytics retrieved successfully');
     }
 
     /**
@@ -452,41 +452,38 @@ class InvestorController extends Controller
 
         $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
 
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'id' => $profile->id,
-                'name' => $profile?->company_name ?? $user->full_name,
-                'industry' => $profile?->industry ?? 'N/A',
-                'location' => $profile?->address ?? 'N/A',
-                'email' => $user->email,
-                'stage' => $profile?->stage ?? 'Seed',
-                'yearsInBusiness' => $profile?->years_in_business,
-                'teamSize' => $profile?->team_size,
-                'foundingDate' => ($profile && $profile->founding_date) ? $profile->founding_date->format('Y-m-d') : null,
-                'websiteUrl' => $profile?->website_url,
-                'score' => $score,
-                'riskLevel' => $this->getFinancialRisk($score, $thresholds),
-                'readinessStatus' => $this->getThresholdLabel($score, $thresholds),
-                'growthPotential' => $growthRate,
-                'growthRate' => $growthRate,
-                'prevScore' => $prevScore,
-                'assessmentCount' => $assessments->count(),
-                'lastAssessed' => $latestAssessment?->completed_at->format('Y-m-d') ?? 'N/A',
-                'pillars' => $pillars,
-                'scoreHistory' => $scoreHistory,
-                'readinessHistory' => array_column($scoreHistory, 'score'),
-                'assessments' => $assessments->map(fn($a) => [
-                    'id' => $a->id,
-                    'score' => round((float) $a->total_score, 1),
-                    'status' => $a->status,
-                    'completed_at' => $a->completed_at?->format('Y-m-d'),
-                    'template_id' => $a->template_id,
-                    'template_name' => $a->template?->name ?? 'Standard Assessment',
-                ])->values()->toArray(),
-                'thresholds' => $thresholds,
-            ]
-        ]);
+        return $this->success([
+            'id' => $profile->id,
+            'name' => $profile?->company_name ?? $user->full_name,
+            'industry' => $profile?->industry ?? 'N/A',
+            'location' => $profile?->address ?? 'N/A',
+            'email' => $user->email,
+            'stage' => $profile?->stage ?? 'Seed',
+            'yearsInBusiness' => $profile?->years_in_business,
+            'teamSize' => $profile?->team_size,
+            'foundingDate' => ($profile && $profile->founding_date) ? $profile->founding_date->format('Y-m-d') : null,
+            'websiteUrl' => $profile?->website_url,
+            'score' => $score,
+            'riskLevel' => $this->getFinancialRisk($score, $thresholds),
+            'readinessStatus' => $this->getThresholdLabel($score, $thresholds),
+            'growthPotential' => $growthRate,
+            'growthRate' => $growthRate,
+            'prevScore' => $prevScore,
+            'assessmentCount' => $assessments->count(),
+            'lastAssessed' => $latestAssessment?->completed_at->format('Y-m-d') ?? 'N/A',
+            'pillars' => $pillars,
+            'scoreHistory' => $scoreHistory,
+            'readinessHistory' => array_column($scoreHistory, 'score'),
+            'assessments' => $assessments->map(fn($a) => [
+                'id' => $a->id,
+                'score' => round((float) $a->total_score, 1),
+                'status' => $a->status,
+                'completed_at' => $a->completed_at?->format('Y-m-d'),
+                'template_id' => $a->template_id,
+                'template_name' => $a->template?->name ?? 'Standard Assessment',
+            ])->values()->toArray(),
+            'thresholds' => $thresholds,
+        ], 'SME profile retrieved successfully');
     }
 
     /**
@@ -506,7 +503,7 @@ class InvestorController extends Controller
         }
 
         if (!$user || $user->role !== 'SME') {
-            return response()->json(['message' => 'User is not an SME or profile not found'], 404);
+            return $this->error('User is not an SME or profile not found', 404);
         }
 
         $profile = $user->smeProfile;
@@ -555,15 +552,12 @@ class InvestorController extends Controller
             $actions = $gaps->toArray();
         }
 
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'id' => $profile->id,
-                'pillars' => $pillars,
-                'actions' => $actions,
-                'thresholds' => $thresholds,
-            ]
-        ]);
+        return $this->success([
+            'id' => $profile->id,
+            'pillars' => $pillars,
+            'actions' => $actions,
+            'thresholds' => $thresholds,
+        ], 'SME dashboard data retrieved successfully');
     }
 
     /**
@@ -578,15 +572,22 @@ class InvestorController extends Controller
             return $this->error('Investor profile not found', 403);
         }
 
+        // Enforce: Program must not be Finished
+        if ($program->isFinished()) {
+            return $this->error('This program has ended and is no longer accepting enrollments.', 403);
+        }
+
+        // Enforce: Enrollment deadline must not have passed
+        if ($program->isEnrollmentClosed()) {
+            return $this->error('The enrollment period for this program has closed. No new enrollments are being accepted.', 403);
+        }
+
         $existing = \App\Models\ProgramEnrollment::where('program_id', $program->id)
             ->where('investor_id', $investorProfile->id)
             ->first();
 
         if ($existing) {
-            return response()->json([
-                'message' => 'You have already enrolled in this program',
-                'status' => $existing->status
-            ], 409);
+            return $this->error('You have already enrolled in this program', 409, ['status' => $existing->status]);
         }
 
         $enrollment = \App\Models\ProgramEnrollment::create([
@@ -607,10 +608,7 @@ class InvestorController extends Controller
     {
         $user = auth()->user();
         if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthenticated',
-            ], 401);
+            return $this->error('Unauthenticated', 401);
         }
 
         $investorId = $user->investorProfile?->id;
@@ -664,6 +662,11 @@ class InvestorController extends Controller
                     'progress' => $progress,
                     'startDate' => $program->start_date?->format('Y-m-d'),
                     'endDate' => $program->end_date?->format('Y-m-d'),
+                    'isEnrollmentClosed' => $program->isEnrollmentClosed(),
+                    'isAssessmentPeriodOver' => $program->isAssessmentPeriodOver(),
+                    'isFinished' => $program->isFinished(),
+                    'isComingSoon' => $program->isComingSoon(),
+                    'enrollmentDeadline' => $program->enrollment_deadline ? $program->enrollment_deadline->format('Y-m-d H:i:s') : null,
                 ];
             });
 
@@ -676,10 +679,9 @@ class InvestorController extends Controller
             'avgScore' => $enrolledPrograms->count() > 0 ? round($enrolledPrograms->avg('avgScore'), 1) : 0,
         ];
 
-        return response()->json([
-            'success' => true,
+        return $this->success([
             'programs' => $programs,
             'stats' => $stats
-        ]);
+        ], 'Programs retrieved successfully');
     }
 }
