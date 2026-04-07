@@ -125,7 +125,7 @@ class GoalController extends Controller
             $creatorRole = $creator?->role ?? 'SME';
             $investorProfile = $creator?->investorProfile;
             
-            $goalData = $goal->toArray();
+            $goalData = method_exists($goal, 'toArray') ? $goal->toArray() : (array) $goal;
             return array_merge($goalData, [
                 'sme_name' => $profile?->company_name ?? $u?->full_name ?? 'SME User',
                 'industry' => $profile?->industry ?? 'N/A',
@@ -157,18 +157,27 @@ class GoalController extends Controller
         $thresholds = $this->getThresholds();
 
         // Get assessment history
-        $assessments = Assessment::where('sme_id', $profile?->id)
+        $assessments = Assessment::with('program')
+            ->where('sme_id', $profile?->id)
             ->where('status', 'Completed')
             ->orderBy('completed_at', 'asc')
             ->get();
 
         $latestAssessment = $assessments->last();
-        $scoreHistory = $assessments->map(fn($a) => [
-            'date'  => $a->completed_at->format('Y-m-d'),
-            'score' => round((float) $a->total_score, 1),
-        ])->values()->toArray();
+        $scoreHistory = $assessments->map(function ($a) use ($thresholds) {
+            $smeThresholds = ($a->program && !empty($a->program->thresholds)) ? $a->program->thresholds : $thresholds;
+            return [
+                'date'  => $a->completed_at->format('Y-m-d'),
+                'score' => round((float) $a->total_score, 1),
+                'risk_level' => $this->getThresholdLabel(round((float) $a->total_score, 1), $smeThresholds),
+            ];
+        })->values()->toArray();
 
-        $currentPillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
+        $smeThresholds = ($latestAssessment && $latestAssessment->program && !empty($latestAssessment->program->thresholds))
+            ? $latestAssessment->program->thresholds
+            : $thresholds;
+
+        $currentPillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $smeThresholds) : [];
         $currentScore = $latestAssessment ? (float) $latestAssessment->total_score : (float) ($profile?->readiness_score ?? 0);
 
         // Calculate expected_score (simple version: linear between start and target)
@@ -199,7 +208,8 @@ class GoalController extends Controller
             'current_pillars' => $currentPillars,
             'sme_profile' => [
                 'pillars' => $currentPillars, // used by modal for current state
-                'readiness_score' => $currentScore
+                'readiness_score' => $currentScore,
+                'readiness_status' => $this->getThresholdLabel($currentScore, $smeThresholds)
             ]
         ]);
 

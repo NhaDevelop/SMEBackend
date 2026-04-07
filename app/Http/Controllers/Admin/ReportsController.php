@@ -760,51 +760,51 @@ class ReportsController extends Controller
         $pillars = Pillar::all();
         $pillarScores = [];
 
-        // First try from assessment_responses (more accurate)
+        $snapshot = $assessment->questions_snapshot ?? [];
+
+        // Fallback: If snapshot is empty, fetch the questions directly from the template relation
+        if (empty($snapshot) && $assessment->template_id) {
+            $snapshot = \App\Models\Question::where('template_id', $assessment->template_id)->get()->toArray();
+        }
+
+        // 1. Establish the true MAX score for each pillar
+        $grouped = [];
+        foreach ($pillars as $p) {
+            $grouped[$p->id] = ['earned' => 0, 'max' => 0];
+        }
+
+        foreach ($snapshot as $q) {
+            $pid = $q['pillar_id'] ?? null;
+            if ($pid && isset($grouped[$pid])) {
+                $grouped[$pid]['max'] += (float) ($q['weight'] ?? 0);
+            }
+        }
+
+        // 2. Fetch what the SME actually earned from their responses
         $responses = \App\Models\AssessmentResponse::where('assessment_id', $assessment->id)
             ->with('question')
             ->get();
 
-        if ($responses->isNotEmpty()) {
-            $grouped = [];
-            foreach ($responses as $r) {
-                if (!$r->question) continue;
-                $pid = $r->question->pillar_id;
-                if (!isset($grouped[$pid])) $grouped[$pid] = ['earned' => 0, 'max' => 0];
-                $grouped[$pid]['earned'] += (float)$r->score_awarded;
-                $grouped[$pid]['max'] += (float)$r->question->weight;
+        foreach ($responses as $r) {
+            if (!$r->question) continue;
+            $pid = $r->question->pillar_id;
+            if (isset($grouped[$pid])) {
+                $grouped[$pid]['earned'] += (float) $r->score_awarded;
             }
-            foreach ($pillars as $pillar) {
-                $d = $grouped[$pillar->id] ?? ['earned' => 0, 'max' => 0];
-                if ($d['max'] <= 0) continue;
-                $pillarScores[] = [
-                    'pillar_id'   => $pillar->id,
-                    'pillar_name' => $pillar->name,
-                    'score'       => round($d['earned'], 2),
-                    'max_score'   => $d['max'],
-                    'percentage'  => round(($d['earned'] / $d['max']) * 100, 1),
-                    'weight'      => $pillar->weight,
-                ];
-            }
-            return $pillarScores;
         }
 
-        // Fallback: questions_snapshot
-        $snapshot = $assessment->questions_snapshot ?? [];
+        // 3. Build the final array, showing ALL pillars regardless if max is 0
         foreach ($pillars as $pillar) {
-            $pillarQuestions = collect($snapshot)->where('pillar_id', $pillar->id);
-            if ($pillarQuestions->count() > 0) {
-                $score    = $pillarQuestions->avg('score_awarded');
-                $maxScore = $pillarQuestions->sum('weight');
-                $pillarScores[] = [
-                    'pillar_id'   => $pillar->id,
-                    'pillar_name' => $pillar->name,
-                    'score'       => round($score, 2),
-                    'max_score'   => $maxScore,
-                    'percentage'  => $maxScore > 0 ? round(($score / $maxScore) * 100, 1) : 0,
-                    'weight'      => $pillar->weight,
-                ];
-            }
+            $d = $grouped[$pillar->id];
+
+            $pillarScores[] = [
+                'pillar_id'   => $pillar->id,
+                'pillar_name' => $pillar->name,
+                'score'       => round($d['earned'], 2),
+                'max_score'   => $d['max'],
+                'percentage'  => $d['max'] > 0 ? round(($d['earned'] / $d['max']) * 100, 1) : 0,
+                'weight'      => $pillar->weight,
+            ];
         }
         return $pillarScores;
     }

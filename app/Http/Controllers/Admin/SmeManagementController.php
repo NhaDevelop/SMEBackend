@@ -73,6 +73,7 @@ class SmeManagementController extends Controller
             'stage' => $profile->stage,
             'foundingDate' => ($profile && $profile->founding_date) ? \Carbon\Carbon::parse($profile->founding_date)->format('Y-m-d') : null,
             'websiteUrl' => $profile->website_url,
+            'registrationDocument' => $profile->registration_document,
             'score' => $actualScore,
             'riskLevel' => $latestAssessment ? $this->getRiskLabel($actualScore, $thresholds) : 'Not Assessed',
             'readinessStatus' => $latestAssessment ? $this->getRiskLabel($actualScore, $thresholds) : 'Needs Assessment',

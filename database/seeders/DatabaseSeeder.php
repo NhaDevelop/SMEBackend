@@ -137,7 +137,7 @@ class DatabaseSeeder extends Seeder
             [
                 'pillar_id' => 1,
                 'text' => 'What is the size of your core leadership team?',
-                'type' => 'SingleChoice',
+                'type' => 'Single Choice',
                 'weight' => 6.25,
                 'options' => [
                     ['label' => '1-2 people', 'value' => '1-2', 'points' => 3],
@@ -168,7 +168,7 @@ class DatabaseSeeder extends Seeder
             [
                 'pillar_id' => 3,
                 'text' => 'Which customer acquisition channels are you currently using?',
-                'type' => 'MultipleChoice',
+                'type' => 'Multiple Choice',
                 'weight' => 6.25,
                 'options' => [
                     ['label' => 'Digital Marketing (Social Media, SEO)', 'value' => 'digital', 'points' => 2],
@@ -211,7 +211,7 @@ class DatabaseSeeder extends Seeder
             [
                 'pillar_id' => 7,
                 'text' => 'Which digital tools does your company currently use?',
-                'type' => 'MultipleChoice',
+                'type' => 'Multiple Choice',
                 'weight' => 6.25,
                 'options' => [
                     ['label' => 'CRM (Customer Relationship Management)', 'value' => 'crm', 'points' => 2],
@@ -228,7 +228,7 @@ class DatabaseSeeder extends Seeder
             [
                 'pillar_id' => 8,
                 'text' => 'What is your primary strategy for scaling the business?',
-                'type' => 'SingleChoice',
+                'type' => 'Single Choice',
                 'weight' => 6.25,
                 'options' => [
                     ['label' => 'Geographic expansion', 'value' => 'geographic', 'points' => 8],
@@ -259,9 +259,9 @@ class DatabaseSeeder extends Seeder
                 'description' => 'A comprehensive program to help SMEs prepare for investment readiness through structured assessment and mentorship.',
                 'template_id' => $template->id,
                 'status' => 'Published',
-                'start_date' => now()->addDays(7),
+                'start_date' => now()->subDays(5),
                 'end_date' => now()->addMonths(6),
-                'enrollment_deadline' => now()->addDays(6),
+                'enrollment_deadline' => now()->addDays(10),
                 'sector' => 'Technology, Healthcare, FinTech, AgriTech, E-commerce, Manufacturing',
                 'duration' => '6 months',
                 'investment_amount' => 50000.00,
@@ -284,8 +284,87 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
+        // 11. Create additional mock users
+        $this->seedAdditionalMockUsers($admin, $program);
+
         echo "Mock data seeded successfully!\n(Passwords are all 'password')\n";
         echo "SME user is enrolled in program: {$program->name}\n";
         echo "Template has " . Question::where('template_id', $template->id)->count() . " questions\n";
+    }
+
+    /**
+     * Create additional SME and Investor users for UI testing.
+     */
+    private function seedAdditionalMockUsers($admin, $defaultProgram): void
+    {
+        // 10 additional SMEs
+        $industries = ['Technology', 'Healthcare', 'FinTech', 'AgriTech', 'E-commerce', 'Manufacturing', 'Logistics', 'Retail'];
+        $stages = ['Idea', 'Seed', 'Early', 'Growth', 'Scaling'];
+        
+        for ($i = 1; $i <= 10; $i++) {
+            $industry = $industries[array_rand($industries)];
+            $stage = $stages[array_rand($stages)];
+            
+            $sme = User::updateOrCreate(
+                ['email' => "sme{$i}@example.com"],
+                [
+                    'full_name' => "SME Owner {$i}",
+                    'password' => bcrypt('password'),
+                    'phone' => "+855 000 000 {$i}",
+                    'role' => 'SME',
+                    'status' => 'ACTIVE',
+                    'is_verified' => true,
+                ]
+            );
+
+            $sme->smeProfile()->updateOrCreate(
+                ['user_id' => $sme->id],
+                [
+                    'company_name' => "Company {$i} (" . $industry . ")",
+                    'industry' => $industry,
+                    'website_url' => "https://company{$i}.com",
+                    'address' => "City {$i}, Cambodia",
+                    'stage' => $stage,
+                    'team_size' => rand(1, 100),
+                    // readiness_score intentionally left null — earned through real assessments only
+                ]
+            );
+
+            // Randomly enroll in the default program
+            if (rand(0, 1)) {
+                ProgramEnrollment::updateOrCreate(
+                    ['sme_id' => $sme->smeProfile->id, 'program_id' => $defaultProgram->id],
+                    [
+                        'status' => 'Enrolled',
+                        'enrollment_date' => now()->subDays(rand(1, 30)),
+                    ]
+                );
+            }
+        }
+
+        // 3 additional Investors
+        for ($i = 1; $i <= 3; $i++) {
+            $investor = User::updateOrCreate(
+                ['email' => "investor{$i}@example.com"],
+                [
+                    'full_name' => "Investor {$i}",
+                    'password' => bcrypt('password'),
+                    'phone' => "+855 111 222 {$i}",
+                    'role' => 'INVESTOR',
+                    'status' => 'ACTIVE',
+                    'is_verified' => true,
+                ]
+            );
+
+            $investor->investorProfile()->updateOrCreate(
+                ['user_id' => $investor->id],
+                [
+                    'organization_name' => "VC Firm {$i}",
+                    'industry' => 'Venture Capital',
+                    'address' => 'Phnom Penh',
+                    'investor_type' => 'Angel'
+                ]
+            );
+        }
     }
 }

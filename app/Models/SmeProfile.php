@@ -10,7 +10,8 @@ class SmeProfile extends Model
         'user_id', 'company_name', 'registration_number', 
         'industry', 'stage', 'years_in_business', 
         'team_size', 'address', 'readiness_score', 'risk_level',
-        'founding_date', 'website_url', 'verified_by_user_id', 'verification_date'
+        'founding_date', 'website_url', 'verified_by_user_id', 'verification_date',
+        'registration_document'
     ];
 
     protected $casts = [

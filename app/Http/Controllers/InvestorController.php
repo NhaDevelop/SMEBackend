@@ -138,7 +138,7 @@ class InvestorController extends Controller
             'smeProfile',
             'smeProfile.enrollments',
             'smeProfile.assessments' => function ($query) {
-                $query->where('status', 'Completed')->orderBy('completed_at', 'asc');
+                $query->where('status', 'Completed')->orderBy('completed_at', 'asc')->with('program');
             }
         ])
             ->get()
@@ -168,16 +168,18 @@ class InvestorController extends Controller
                     ? round((float) $latestAssessment->total_score, 1)
                     : ($targetTemplateId ? 0.0 : round((float) ($profile->readiness_score ?? 0), 1));
 
-                // ── Real growth rate: % change from previous to latest score ──
-                $prevScore = $prevAssessment ? (float) $prevAssessment->total_score : null;
-                $growthRate = 0;
-                if ($prevScore !== null && $prevScore > 0) {
-                    $growthRate = round((($currentScore - $prevScore) / $prevScore) * 100, 1);
-                } elseif ($prevScore === 0 && $currentScore > 0) {
-                    $growthRate = 100; // Went from 0 → something = 100% growth
-                }
-                // Cap to reasonable visual range for the scatter plot
-                $growthPlot = max(-100, min(100, $growthRate));
+                // ── Per-pillar breakdown ──────────────────────────────────────
+                $smeThresholds = ($latestAssessment && $latestAssessment->program && !empty($latestAssessment->program->thresholds))
+                    ? $latestAssessment->program->thresholds
+                    : $thresholds;
+
+                $pillars = $latestAssessment
+                    ? $this->calcPillarScores($latestAssessment, $smeThresholds)
+                    : [];
+
+                // ── Risk classification ───────────────────────────────────────
+                $financialRisk = $this->getFinancialRisk($currentScore, $smeThresholds);
+                $readinessLabel = $this->getThresholdLabel($currentScore, $smeThresholds);
 
                 // ── Score history (for sparkline / trend) ────────────────────
                 $scoreHistory = $assessments->map(fn($a) => [
@@ -185,22 +187,18 @@ class InvestorController extends Controller
                     'score' => round((float) $a->total_score, 1),
                 ])->values()->toArray();
 
-                // Compact array for the readinessHistory sparkline
                 $readinessHistory = array_column($scoreHistory, 'score');
-
-                // ── Per-pillar breakdown ──────────────────────────────────────
-                $pillars = $latestAssessment
-                    ? $this->calcPillarScores($latestAssessment, $thresholds)
-                    : [];
-
-                // ── Risk classification ───────────────────────────────────────
-                $financialRisk = $this->getFinancialRisk($currentScore, $thresholds);
-                $readinessLabel = $this->getThresholdLabel($currentScore, $thresholds);
 
                 // ── Last assessed date ────────────────────────────────────────
                 $lastAssessedDate = $latestAssessment
                     ? $latestAssessment->completed_at->format('Y-m-d')
                     : null;
+
+                // ── Real growth rate: Intrinsic Potential from Pillars ──
+                $prevAssessment = $assessments->count() >= 2 ? $assessments->slice(-2, 1)->first() : null;
+                $prevScore = $prevAssessment ? (float) $prevAssessment->total_score : null;
+                $growthRate = $this->calculateGrowthPotential($pillars);
+                $growthPlot = max(0, min(100, $growthRate));
 
                 // ── Program Enrollments ──────────────────────────────────────
                 $programIds = ProgramEnrollment::where('sme_id', $profile->id)
@@ -319,7 +317,7 @@ class InvestorController extends Controller
         $smes = $query->with([
             'smeProfile',
             'smeProfile.assessments' => function ($q) {
-                $q->where('status', 'Completed')->orderBy('completed_at', 'asc');
+                $q->where('status', 'Completed')->orderBy('completed_at', 'asc')->with('program');
             }
         ])
             ->get()
@@ -343,8 +341,14 @@ class InvestorController extends Controller
                     ? round((float) $latestAssessment->total_score, 1)
                     : ($targetTemplateId ? 0.0 : round((float) ($profile->readiness_score ?? 0), 1));
 
+                $smeThresholds = ($latestAssessment && $latestAssessment->program && !empty($latestAssessment->program->thresholds))
+                    ? $latestAssessment->program->thresholds
+                    : $thresholds;
+                
+                $smeSortedThresholds = collect($smeThresholds)->sortByDesc('min');
+
                 // Update risk metrics counter
-                $matched = $sortedThresholds->first(fn($t) => $currentScore >= (float) $t['min']);
+                $matched = $smeSortedThresholds->first(fn($t) => $currentScore >= (float) $t['min']);
                 if ($matched) {
                     $key = strtolower(str_replace(' ', '_', $matched['label']));
                     $riskMetrics[$key] = ($riskMetrics[$key] ?? 0) + 1;
@@ -358,15 +362,15 @@ class InvestorController extends Controller
                     $growthRate = round((($currentScore - $prevScore) / $prevScore) * 100, 1);
                 }
 
-                $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
+                $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $smeThresholds) : [];
 
                 return [
                     'id' => $profile->id,
                     'name' => $profile->company_name ?? $user->full_name,
                     'industry' => $profile->industry ?? 'Uncategorized',
                     'score' => $currentScore,
-                    'financialRisk' => $this->getFinancialRisk($currentScore, $thresholds),
-                    'readinessLabel' => $this->getThresholdLabel($currentScore, $thresholds),
+                    'financialRisk' => $this->getFinancialRisk($currentScore, $smeThresholds),
+                    'readinessLabel' => $this->getThresholdLabel($currentScore, $smeThresholds),
                     'growthRate' => max(-100, min(100, $growthRate)),
                     'lastAssessedDate' => $latestAssessment ? $latestAssessment->completed_at->format('Y-m-d') : null,
                     'pillars' => $pillars,
@@ -427,7 +431,7 @@ class InvestorController extends Controller
         // Filter assessments by targeted template (if program filter active)
         $allAssessments = Assessment::where('sme_id', $profile?->id)
             ->where('status', 'Completed')
-            ->with('template')
+            ->with(['template', 'program'])
             ->orderBy('completed_at', 'asc')
             ->get();
 
@@ -437,20 +441,24 @@ class InvestorController extends Controller
 
         $latestAssessment = $assessments->last();
         $score = $latestAssessment ? (float) $latestAssessment->total_score : (float) ($profile?->readiness_score ?? 0);
+        
+        $smeThresholds = ($latestAssessment && $latestAssessment->program && !empty($latestAssessment->program->thresholds))
+                    ? $latestAssessment->program->thresholds
+                    : $thresholds;
 
-        $scoreHistory = $assessments->map(fn($a) => [
-            'date' => $a->completed_at->format('Y-m-d'),
-            'score' => round((float) $a->total_score, 1),
-            'template_name' => $a->template?->name ?? 'Standard Assessment',
-        ])->values()->toArray();
+        $scoreHistory = $assessments->map(function ($a) use ($thresholds) {
+            $t = ($a->program && !empty($a->program->thresholds)) ? $a->program->thresholds : $thresholds;
+            return [
+                'date' => $a->completed_at->format('Y-m-d'),
+                'score' => round((float) $a->total_score, 1),
+                'template_name' => $a->template?->name ?? 'Standard Assessment',
+                'risk_level' => $this->getThresholdLabel(round((float) $a->total_score, 1), $t),
+            ];
+        })->values()->toArray();
 
         $prevScore = $assessments->count() >= 2 ? (float) $assessments->slice(-2, 1)->first()->total_score : null;
-        $growthRate = 0;
-        if ($prevScore !== null && $prevScore > 0) {
-            $growthRate = round((($score - $prevScore) / $prevScore) * 100, 1);
-        }
-
-        $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
+        $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $smeThresholds) : [];
+        $growthRate = $this->calculateGrowthPotential($pillars);
 
         return $this->success([
             'id' => $profile->id,
@@ -463,9 +471,10 @@ class InvestorController extends Controller
             'teamSize' => $profile?->team_size,
             'foundingDate' => ($profile && $profile->founding_date) ? $profile->founding_date->format('Y-m-d') : null,
             'websiteUrl' => $profile?->website_url,
+            'registrationDocument' => $profile?->registration_document,
             'score' => $score,
-            'riskLevel' => $this->getFinancialRisk($score, $thresholds),
-            'readinessStatus' => $this->getThresholdLabel($score, $thresholds),
+            'riskLevel' => $this->getFinancialRisk($score, $smeThresholds),
+            'readinessStatus' => $this->getThresholdLabel($score, $smeThresholds),
             'growthPotential' => $growthRate,
             'growthRate' => $growthRate,
             'prevScore' => $prevScore,
@@ -515,10 +524,15 @@ class InvestorController extends Controller
             ->when($targetTemplateId, function ($q) use ($targetTemplateId) {
                 return $q->where('template_id', $targetTemplateId);
             })
+            ->with('program')
             ->latest('completed_at')
             ->first();
 
-        $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $thresholds) : [];
+        $smeThresholds = ($latestAssessment && $latestAssessment->program && !empty($latestAssessment->program->thresholds))
+            ? $latestAssessment->program->thresholds
+            : $thresholds;
+
+        $pillars = $latestAssessment ? $this->calcPillarScores($latestAssessment, $smeThresholds) : [];
 
         // Action items from low-scoring responses
         $actions = [];
@@ -683,5 +697,36 @@ class InvestorController extends Controller
             'programs' => $programs,
             'stats' => $stats
         ], 'Programs retrieved successfully');
+    }
+
+    /**
+     * Calculate intrinsic Growth Potential based on key scalable pillars.
+     */
+    private function calculateGrowthPotential(array $pillars): float
+    {
+        if (empty($pillars)) {
+            return 0.0;
+        }
+
+        $targetPillars = ['Growth & Scalability', 'Market & Traction', 'Business Model'];
+        $sum = 0;
+        $count = 0;
+
+        foreach ($pillars as $pillar) {
+            if (in_array($pillar['name'], $targetPillars)) {
+                $sum += (float) $pillar['score'];
+                $count++;
+            }
+        }
+
+        if ($count === 0) {
+            // Fallback: average all pillars if targeting is missing
+            foreach ($pillars as $pillar) {
+                $sum += (float) $pillar['score'];
+                $count++;
+            }
+        }
+
+        return $count > 0 ? round($sum / $count, 1) : 0.0;
     }
 }

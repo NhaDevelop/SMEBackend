@@ -37,9 +37,9 @@ class IndustryTemplatesSeeder extends Seeder
                 'description' => 'A program dedicated to SMEs in the AgriTech space, focusing on sustainable practices and supply chain optimization.',
                 'template_id' => $agriTemplate->id,
                 'status' => 'Published',
-                'start_date' => now()->addDays(2),
+                'start_date' => now()->subDays(2), // Started 2 days ago
                 'end_date' => now()->addMonths(8),
-                'enrollment_deadline' => now()->addDays(1),
+                'enrollment_deadline' => now()->addDays(5),
                 'sector' => 'AgriTech, BioTech, Logistics',
                 'duration' => '8 months',
                 'investment_amount' => 75000.00,
@@ -72,9 +72,9 @@ class IndustryTemplatesSeeder extends Seeder
                 'description' => 'Scale your software business globally. This program targets SaaS companies with proven traction and high growth potential.',
                 'template_id' => $saasTemplate->id,
                 'status' => 'Published',
-                'start_date' => now()->addDays(5),
+                'start_date' => now()->subDays(1), // Started 1 day ago
                 'end_date' => now()->addMonths(12),
-                'enrollment_deadline' => now()->addDays(4),
+                'enrollment_deadline' => now()->addDays(10),
                 'sector' => 'Technology, SaaS, Cloud, AI',
                 'duration' => '12 months',
                 'investment_amount' => 150000.00,
@@ -107,7 +107,7 @@ class IndustryTemplatesSeeder extends Seeder
                 'description' => 'A funding-heavy program for companies building tomorrow\'s renewable energy solutions and circular economy models.',
                 'template_id' => $greenTemplate->id,
                 'status' => 'Published',
-                'start_date' => now()->addMonth(),
+                'start_date' => now(), // Starts today
                 'end_date' => now()->addMonths(18),
                 'enrollment_deadline' => now()->addDays(20),
                 'sector' => 'Renewable Energy, Circular Economy, ESG',
@@ -138,15 +138,23 @@ class IndustryTemplatesSeeder extends Seeder
             // Pillar 3: Market
             ['pillar_id' => 3, 'text' => 'Rate your current distribution reach Provincial vs National Stage.', 'type' => 'Scale (1-10)', 'weight' => 10],
             // Pillar 4: Financial
-            ['pillar_id' => 4, 'text' => 'What was your annual revenue last fiscal year?', 'type' => 'Number', 'weight' => 15],
+            ['pillar_id' => 4, 'text' => 'What was your annual revenue last fiscal year?', 'type' => 'Multiple Choice', 'weight' => 15, 'options' => [
+                ['label' => '< $50k', 'points' => 5],
+                ['label' => '$50k - $200k', 'points' => 10],
+                ['label' => '> $200k', 'points' => 15]
+            ]],
             // Pillar 5: Operations
             ['pillar_id' => 5, 'text' => 'Do you use IoT sensors for soil or water monitoring?', 'type' => 'Yes/No', 'weight' => 8],
             // Pillar 6: Legal
             ['pillar_id' => 6, 'text' => 'Is your land title properly registered for agricultural use?', 'type' => 'Yes/No', 'weight' => 15],
             // Pillar 7: Data
-            ['pillar_id' => 7, 'text' => 'What CRM or ERP do you use to track crop cycles?', 'type' => 'Short Text', 'weight' => 5],
+            ['pillar_id' => 7, 'text' => 'What CRM or ERP do you use to track crop cycles?', 'type' => 'Multiple Choice', 'weight' => 5, 'options' => [
+                ['label' => 'Manual/Excel', 'points' => 2],
+                ['label' => 'Standard CRM', 'points' => 4],
+                ['label' => 'Advanced ERP', 'points' => 5]
+            ]],
             // Pillar 8: Growth
-            ['pillar_id' => 8, 'text' => 'How many hectares are under management?', 'type' => 'Number', 'weight' => 20]
+            ['pillar_id' => 8, 'text' => 'How many hectares are under management?', 'type' => 'Scale (1-10)', 'weight' => 20]
         ];
 
         foreach ($questions as $q) {
@@ -162,14 +170,19 @@ class IndustryTemplatesSeeder extends Seeder
         $questions = [
             ['pillar_id' => 1, 'text' => 'Do you have a CTO or lead engineer in the founding team?', 'type' => 'Yes/No', 'weight' => 10],
             ['pillar_id' => 2, 'text' => 'Rate your Monthly Recurring Revenue (MRR) stability.', 'type' => 'Scale (1-10)', 'weight' => 15],
-            ['pillar_id' => 3, 'text' => 'What is your current Customer Acquisition Cost (CAC) in USD?', 'type' => 'Number', 'weight' => 10],
+            ['pillar_id' => 3, 'text' => 'What is your current Customer Acquisition Cost (CAC) in USD?', 'type' => 'Scale (1-10)', 'weight' => 10],
             ['pillar_id' => 4, 'text' => 'Is your software hosted on a reputable cloud provider (AWS/GCP/Azure)?', 'type' => 'Yes/No', 'weight' => 5],
             ['pillar_id' => 5, 'text' => 'How long does it take to onboard a new B2B client?', 'type' => 'Multiple Choice', 'weight' => 8, 'options' => [
                 ['label' => '< 24 Hours', 'points' => 10], 
                 ['label' => '1-3 days', 'points' => 7], 
                 ['label' => '1 week+', 'points' => 2]
             ]],
-            ['pillar_id' => 6, 'text' => 'Describe your current intellectual property status in short.', 'type' => 'Short Text', 'weight' => 12],
+            ['pillar_id' => 6, 'text' => 'Describe your current intellectual property status.', 'type' => 'Multiple Choice', 'weight' => 12, 'options' => [
+                ['label' => 'No IP', 'points' => 0],
+                ['label' => 'Trademark/Copyright', 'points' => 6],
+                ['label' => 'Patents Pending', 'points' => 9],
+                ['label' => 'Patents Granted', 'points' => 12]
+            ]],
             ['pillar_id' => 7, 'text' => 'What percentage of your operations are fully digital/paperless?', 'type' => 'Scale (1-10)', 'weight' => 10],
             ['pillar_id' => 8, 'text' => 'Select your target market expansion priority.', 'type' => 'Multiple Choice', 'weight' => 20, 'options' => [
                 ['label' => 'Southeast Asia', 'points' => 15], 
@@ -191,7 +204,7 @@ class IndustryTemplatesSeeder extends Seeder
         $questions = [
             ['pillar_id' => 1, 'text' => 'Do you have an ESG compliance officer?', 'type' => 'Yes/No', 'weight' => 10],
             ['pillar_id' => 2, 'text' => 'Rate your business impact on local biodiversity.', 'type' => 'Scale (1-10)', 'weight' => 15],
-            ['pillar_id' => 3, 'text' => 'What is your estimated annual carbon footprint (Tons of CO2)?', 'type' => 'Number', 'weight' => 10],
+            ['pillar_id' => 3, 'text' => 'How would you rate your annual carbon footprint efforts?', 'type' => 'Scale (1-10)', 'weight' => 10],
             ['pillar_id' => 4, 'text' => 'Has your company received any environmental certifications?', 'type' => 'Yes/No', 'weight' => 20],
             ['pillar_id' => 5, 'text' => 'What percentage of your power source is renewable?', 'type' => 'Multiple Choice', 'weight' => 15, 'options' => [
                 ['label' => '100%', 'points' => 20], 
@@ -201,7 +214,11 @@ class IndustryTemplatesSeeder extends Seeder
             ]],
             ['pillar_id' => 6, 'text' => 'Are your board minutes publicly accessible?', 'type' => 'Yes/No', 'weight' => 10],
             ['pillar_id' => 7, 'text' => 'Do you use digital monitoring for waste/output efficiency?', 'type' => 'Yes/No', 'weight' => 10],
-            ['pillar_id' => 8, 'text' => 'Describe your plan for scaling your environmental impact.', 'type' => 'Short Text', 'weight' => 10]
+            ['pillar_id' => 8, 'text' => 'Select your plan for scaling environmental impact.', 'type' => 'Multiple Choice', 'weight' => 10, 'options' => [
+                ['label' => 'Local expansion', 'points' => 5],
+                ['label' => 'Regional expansion', 'points' => 8],
+                ['label' => 'Global scale-up', 'points' => 10]
+            ]]
         ];
 
         foreach ($questions as $q) {

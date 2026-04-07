@@ -176,23 +176,19 @@ class ProgramController extends Controller
         $progress = 0;
         $avgScore = 0;
 
-        if ($totalSmes > 0 && $program->template_id) {
-            $smeIds = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->pluck('sme_id');
-            $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
-                ->whereIn('sme_id', $smeIds)
-                ->where('status', 'Completed')
-                ->get();
+        $isEnrolled = false;
+        $user = auth('api')->user();
 
-            $completedCount = $completedAssessments->count();
-            $progress = round(($completedCount / $totalSmes) * 100);
-            
-            // Use direct DB average for more reliability
-            $avgScore = \App\Models\Assessment::where('template_id', $program->template_id)
-                ->whereIn('sme_id', $smeIds)
-                ->where('status', 'Completed')
-                ->avg('total_score') ?: 0;
-            
-            $avgScore = round($avgScore, 1);
+        if ($user) {
+            if ($user->role === 'SME' && $user->smeProfile) {
+                $isEnrolled = ProgramEnrollment::where('program_id', $program->id)
+                    ->where('sme_id', $user->smeProfile->id)
+                    ->exists();
+            } elseif ($user->role === 'INVESTOR' && $user->investorProfile) {
+                $isEnrolled = ProgramEnrollment::where('program_id', $program->id)
+                    ->where('investor_id', $user->investorProfile->id)
+                    ->exists();
+            }
         }
  
         return [
@@ -200,6 +196,7 @@ class ProgramController extends Controller
             'name' => $program->name,
             'slug' => $program->slug,
             'status' => $program->status,
+            'isEnrolled' => $isEnrolled,
             'description' => $program->description,
             'template' => $program->template ? $program->template->name : 'No Template',
             'templateId' => $program->template_id,

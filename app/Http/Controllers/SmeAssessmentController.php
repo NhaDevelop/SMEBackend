@@ -24,7 +24,7 @@ class SmeAssessmentController extends Controller
 
         $programs = Program::whereHas('enrollments', function ($query) use ($user) {
             $query->where('sme_id', $user->smeProfile->id);
-        })->with(['template'])->get()->map(function ($program) use ($user) {
+        })->with(['template'])->get()->map(function (\App\Models\Program $program) use ($user) {
             $enrollment = ProgramEnrollment::where('program_id', $program->id)
                 ->where('sme_id', $user->smeProfile->id)
                 ->first();
@@ -172,61 +172,61 @@ class SmeAssessmentController extends Controller
         $user = auth()->user();
         $smeProfile = $user ? $user->smeProfile : null;
 
-        $programs = Program::where('status', 'Published')
+        $programs = Program::whereIn('status', ['Published', 'Open'])
             ->with(['template'])
             ->get()
             ->map(function ($program) use ($smeProfile) {
-            $enrollment = $smeProfile ? ProgramEnrollment::where('program_id', $program->id)
-                ->where('sme_id', $smeProfile->id)
-                ->first() : null;
+                $enrollment = $smeProfile ? ProgramEnrollment::where('program_id', $program->id)
+                    ->where('sme_id', $smeProfile->id)
+                    ->first() : null;
 
-            $totalSmes = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count();
-            $totalInvestors = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('investor_id')->count();
-            $progress = 0;
-            $avgScore = 0;
+                $totalSmes = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count();
+                $totalInvestors = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('investor_id')->count();
+                $progress = 0;
+                $avgScore = 0;
 
-            if ($totalSmes > 0 && $program->template_id) {
-                $smeIds = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->pluck('sme_id');
-                $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
-                    ->whereIn('sme_id', $smeIds)
-                    ->where('status', 'Completed')
-                    ->get();
+                if ($totalSmes > 0 && $program->template_id) {
+                    $smeIds = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->pluck('sme_id');
+                    $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
+                        ->whereIn('sme_id', $smeIds)
+                        ->where('status', 'Completed')
+                        ->get();
 
-                $completedCount = $completedAssessments->count();
-                $progress = round(($completedCount / $totalSmes) * 100);
-                $avgScore = round($completedCount > 0 ? $completedAssessments->avg('total_score') : 0);
-            }
+                    $completedCount = $completedAssessments->count();
+                    $progress = round(($completedCount / $totalSmes) * 100);
+                    $avgScore = round($completedCount > 0 ? $completedAssessments->avg('total_score') : 0);
+                }
 
-            // Normalize enrollment status
-            $eStatus = $enrollment ? $enrollment->status : 'None';
-            if (in_array(strtolower($eStatus), ['accepted', 'approved', 'enrolled', 'active'])) {
-                $eStatus = 'Enrolled';
-            }
+                // Normalize enrollment status
+                $eStatus = $enrollment ? $enrollment->status : 'None';
+                if (in_array(strtolower($eStatus), ['accepted', 'approved', 'enrolled', 'active'])) {
+                    $eStatus = 'Enrolled';
+                }
 
-            return [
-                'id' => $program->id,
-                'name' => $program->name,
-                'description' => $program->description,
-                'status' => $program->status,
-                'sector' => $program->sector,
-                'investment_amount' => $program->investment_amount,
-                'benefits' => $program->benefits,
-                'startDate' => $program->start_date ? $program->start_date->format('Y-m-d') : null,
-                'endDate' => $program->end_date ? $program->end_date->format('Y-m-d') : null,
-                'templateName' => $program->template ? $program->template->name : null,
-                'templateId' => $program->template_id,
-                'enrollmentStatus' => $eStatus,
-                'progress' => $progress,
-                'avgScore' => $avgScore,
-                'smesCount' => $totalSmes,
-                'investorsCount' => $totalInvestors,
-                'isEnrollmentClosed' => $program->isEnrollmentClosed(),
-                'isAssessmentPeriodOver' => $program->isAssessmentPeriodOver(),
-                'isFinished' => $program->isFinished(),
-                'isComingSoon' => $program->isComingSoon(),
-                'enrollmentDeadline' => $program->enrollment_deadline ? $program->enrollment_deadline->format('Y-m-d H:i:s') : null,
-            ];
-        });
+                return [
+                    'id' => $program->id,
+                    'name' => $program->name,
+                    'description' => $program->description,
+                    'status' => $program->status,
+                    'sector' => $program->sector,
+                    'investment_amount' => $program->investment_amount,
+                    'benefits' => $program->benefits,
+                    'startDate' => $program->start_date ? $program->start_date->format('Y-m-d') : null,
+                    'endDate' => $program->end_date ? $program->end_date->format('Y-m-d') : null,
+                    'templateName' => $program->template ? $program->template->name : null,
+                    'templateId' => $program->template_id,
+                    'enrollmentStatus' => $eStatus,
+                    'progress' => $progress,
+                    'avgScore' => $avgScore,
+                    'smesCount' => $totalSmes,
+                    'investorsCount' => $totalInvestors,
+                    'isEnrollmentClosed' => $program->isEnrollmentClosed(),
+                    'isAssessmentPeriodOver' => $program->isAssessmentPeriodOver(),
+                    'isFinished' => $program->isFinished(),
+                    'isComingSoon' => $program->isComingSoon(),
+                    'enrollmentDeadline' => $program->enrollment_deadline ? $program->enrollment_deadline->format('Y-m-d H:i:s') : null,
+                ];
+            });
 
         return $this->success($programs, 'Programs retrieved successfully');
     }

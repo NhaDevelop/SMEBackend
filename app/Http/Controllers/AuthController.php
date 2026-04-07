@@ -12,12 +12,15 @@ class AuthController extends Controller
 {
     public function register(Request $request)
     {
-        // Handle camelCase from frontend if sent
+        // Handle camelCase and alternative names from frontend
         $mappings = [
             'companyName' => 'company_name',
             'registrationNumber' => 'registration_number',
+            'registrationNo' => 'registration_number',
+            'registration_no' => 'registration_number',
             'yearsInBusiness' => 'years_in_business',
             'teamSize' => 'team_size',
+            'employees' => 'team_size',
             'websiteUrl' => 'website_url',
             'minTicketSize' => 'min_ticket_size',
             'maxTicketSize' => 'max_ticket_size',
@@ -49,6 +52,7 @@ class AuthController extends Controller
             'min_ticket_size' => 'nullable|numeric',
             'max_ticket_size' => 'nullable|numeric',
             'organization_name' => 'nullable|string',
+            'registration_document' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ]);
 
         $user = User::create([
@@ -60,6 +64,11 @@ class AuthController extends Controller
             'status' => 'PENDING',
         ]);
 
+        $docPath = null;
+        if ($request->hasFile('registration_document')) {
+            $docPath = $request->file('registration_document')->store('registration_documents', 'public');
+        }
+
         if ($user->role === 'SME') {
             $user->smeProfile()->create([
                 'company_name' => $validated['company_name'] ?? null,
@@ -70,6 +79,7 @@ class AuthController extends Controller
                 'team_size' => $validated['team_size'] ?? null,
                 'address' => $validated['address'] ?? null,
                 'website_url' => $validated['website_url'] ?? null,
+                'registration_document' => $docPath,
             ]);
         }
         else if ($validated['role'] === 'INVESTOR') {
@@ -79,6 +89,8 @@ class AuthController extends Controller
                 'min_ticket_size' => $validated['min_ticket_size'] ?? null,
                 'max_ticket_size' => $validated['max_ticket_size'] ?? null,
                 'industry' => $validated['industry'] ?? null,
+                'address' => $validated['address'] ?? null,
+                'registration_document' => $docPath,
             ]);
         }
 
