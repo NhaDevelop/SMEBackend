@@ -23,8 +23,25 @@ class ProgramController extends Controller
             $query->whereIn('status', ['Published', 'Active', 'Open']);
         }
 
-        $programs = $query->get()->map(function ($program) {
-            return $this->formatProgram($program);
+        // Optimization: use withCount to get enrollment stats in a single query
+        $query->withCount([
+            'enrollments as smes_count' => function ($q) { $q->whereNotNull('sme_id'); },
+            'enrollments as investors_count' => function ($q) { $q->whereNotNull('investor_id'); }
+        ]);
+
+        // Optimization: batch check enrollment for the current user
+        $userEnrollments = [];
+        if ($user) {
+            $profileId = ($user->role === 'SME') ? $user->smeProfile?->id : $user->investorProfile?->id;
+            if ($profileId) {
+                $userEnrollments = ProgramEnrollment::where($user->role === 'SME' ? 'sme_id' : 'investor_id', $profileId)
+                    ->pluck('program_id')
+                    ->toArray();
+            }
+        }
+
+        $programs = $query->get()->map(function ($program) use ($userEnrollments) {
+            return $this->formatProgram($program, $userEnrollments);
         });
 
         $avgScore = $programs->filter(fn($p) => ($p['avgScore'] ?? 0) > 0)->avg('avgScore') ?? 0;
@@ -169,27 +186,15 @@ class ProgramController extends Controller
         }
     }
 
-    private function formatProgram($program)
+    private function formatProgram($program, $userEnrollments = [])
     {
-        $totalSmes = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count();
-        $totalInvestors = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('investor_id')->count();
+        $totalSmes = $program->smes_count ?? ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count();
+        $totalInvestors = $program->investors_count ?? ProgramEnrollment::where('program_id', $program->id)->whereNotNull('investor_id')->count();
         $progress = 0;
         $avgScore = 0;
 
-        $isEnrolled = false;
+        $isEnrolled = in_array($program->id, $userEnrollments);
         $user = auth('api')->user();
-
-        if ($user) {
-            if ($user->role === 'SME' && $user->smeProfile) {
-                $isEnrolled = ProgramEnrollment::where('program_id', $program->id)
-                    ->where('sme_id', $user->smeProfile->id)
-                    ->exists();
-            } elseif ($user->role === 'INVESTOR' && $user->investorProfile) {
-                $isEnrolled = ProgramEnrollment::where('program_id', $program->id)
-                    ->where('investor_id', $user->investorProfile->id)
-                    ->exists();
-            }
-        }
  
         return [
             'id' => $program->id,

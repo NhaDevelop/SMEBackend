@@ -25,4 +25,9 @@ class Question extends Model
     {
         return $this->belongsTo(Template::class);
     }
+
+    public function pillar()
+    {
+        return $this->belongsTo(Pillar::class);
+    }
 }

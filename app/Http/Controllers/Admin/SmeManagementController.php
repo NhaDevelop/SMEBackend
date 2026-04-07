@@ -27,7 +27,10 @@ class SmeManagementController extends Controller
         $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
 
         // Fetch dynamic thresholds
-        $settings = \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
+        // Fetch dynamic thresholds from cache
+        $settings = \Illuminate\Support\Facades\Cache::remember('framework_config', 86400, function () {
+            return \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
+        });
         $thresholds = $settings ? ($settings->value['thresholds'] ?? []) : [
             ['id' => 'investor', 'label' => 'Investor Ready', 'min' => 80, 'max' => 100],
             ['id' => 'near', 'label' => 'Near Ready', 'min' => 60, 'max' => 79],
@@ -124,7 +127,10 @@ class SmeManagementController extends Controller
         $profile = $user->smeProfile;
 
         // Fetch dynamic thresholds
-        $settings = \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
+        // Fetch dynamic thresholds from cache
+        $settings = \Illuminate\Support\Facades\Cache::remember('framework_config', 86400, function () {
+            return \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
+        });
         $thresholds = $settings ? ($settings->value['thresholds'] ?? []) : [
             ['id' => 'investor', 'label' => 'Investor Ready', 'min' => 80, 'max' => 100],
             ['id' => 'near', 'label' => 'Near Ready', 'min' => 60, 'max' => 79],
@@ -179,14 +185,13 @@ class SmeManagementController extends Controller
         $actions = [];
         if ($latestAssessment) {
             $responses = AssessmentResponse::where('assessment_id', $latestAssessment->id)
-                ->with('question')
+                ->with('question.pillar')
                 ->get();
 
             $gaps = $responses->filter(function ($r) {
                 return $r->question && $r->question->weight > 0 && ($r->score_awarded / $r->question->weight) <= 0.5;
             })->map(function ($r) {
-                $pModel = Pillar::find($r->question->pillar_id);
-                $pillarName = $pModel ? $pModel->name : $r->question->pillar_id;
+                $pillarName = $r->question->pillar ? $r->question->pillar->name : $r->question->pillar_id;
                 $max = (float)$r->question->weight;
                 $earned = (float)$r->score_awarded;
                 $ratio = $max > 0 ? ($earned / $max) : 1;
