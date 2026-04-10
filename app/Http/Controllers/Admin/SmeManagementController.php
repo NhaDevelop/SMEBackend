@@ -14,9 +14,18 @@ use Illuminate\Support\Facades\DB;
 
 use App\Traits\ApiResponse;
 
+use App\Services\AssessmentService;
+
 class SmeManagementController extends Controller
 {
-    use ApiResponse, \App\Traits\AssessmentScoring;
+    use ApiResponse;
+
+    protected $assessmentService;
+
+    public function __construct(AssessmentService $assessmentService)
+    {
+        $this->assessmentService = $assessmentService;
+    }
     /**
      * GET /api/admin/smes/{id}
      * Fetch basic SME profile and user info.
@@ -38,13 +47,22 @@ class SmeManagementController extends Controller
             ['id' => 'pre', 'label' => 'Pre-Investment', 'min' => 0, 'max' => 39],
         ];
 
-        $user = User::with('smeProfile')->findOrFail($id);
+        $user = User::with('smeProfile')
+            ->where('role', 'SME')
+            ->where(function ($q) use ($id) {
+                $q->where('id', $id)->orWhereHas('smeProfile', function ($sq) use ($id) {
+                    $sq->where('id', $id);
+                });
+            })->firstOrFail();
 
         if ($user->role !== 'SME') {
             return $this->error('User is not an SME', 400);
         }
 
         $profile = $user->smeProfile;
+        if (!$profile) {
+            return $this->error('SME Profile not found', 404);
+        }
 
         // Fetch all completed assessments ordered ascending (chronological), with template relation.
         $allAssessments = Assessment::where('sme_id', $profile->id)
@@ -78,8 +96,8 @@ class SmeManagementController extends Controller
             'websiteUrl' => $profile->website_url,
             'registrationDocument' => $profile->registration_document,
             'score' => $actualScore,
-            'riskLevel' => $latestAssessment ? $this->getRiskLabel($actualScore, $thresholds) : 'Not Assessed',
-            'readinessStatus' => $latestAssessment ? $this->getRiskLabel($actualScore, $thresholds) : 'Needs Assessment',
+            'riskLevel' => $latestAssessment ? $this->assessmentService->getThresholdLabel($actualScore, $thresholds) : 'Not Assessed',
+            'readinessStatus' => $latestAssessment ? $this->assessmentService->getThresholdLabel($actualScore, $thresholds) : 'Needs Assessment',
             'lastAssessed' => $latestAssessment ? $latestAssessment->completed_at->format('Y-m-d') : 'Never',
             // Real growth rate: % change between last two COMPLETED assessments
             'growthPotential' => (function () use ($prevAssessment, $actualScore): float {
@@ -110,7 +128,17 @@ class SmeManagementController extends Controller
                         'templateName' => $a->template ? $a->template->name : 'Standard Assessment',
                         'template_name'=> $a->template ? $a->template->name : 'Standard Assessment',
                     ];
-                })->values()->toArray()
+                })->values()->toArray(),
+            'enrolledPrograms' => \App\Models\ProgramEnrollment::where('sme_id', $profile->id)
+                ->with('program:id,name,template_id')
+                ->get()
+                ->map(function ($enrollment) {
+                    return [
+                        'id' => $enrollment->program->id,
+                        'name' => $enrollment->program->name,
+                        'templateId' => $enrollment->program->template_id
+                    ];
+                })
         ]);
     }
 
@@ -123,7 +151,13 @@ class SmeManagementController extends Controller
         $programId = $request->input('program_id');
         $targetTemplateId = $programId ? Program::find($programId)?->template_id : null;
         
-        $user = User::with('smeProfile')->findOrFail($id);
+        $user = User::with('smeProfile')
+            ->where('role', 'SME')
+            ->where(function ($q) use ($id) {
+                $q->where('id', $id)->orWhereHas('smeProfile', function ($sq) use ($id) {
+                    $sq->where('id', $id);
+                });
+            })->firstOrFail();
         $profile = $user->smeProfile;
 
         // Fetch dynamic thresholds
@@ -149,7 +183,7 @@ class SmeManagementController extends Controller
 
         $pillarStats = [];
         if ($latestAssessment) {
-            $pillarStats = $this->calculatePillarScores($latestAssessment, $thresholds);
+            $pillarStats = $this->assessmentService->calculatePillarScores($latestAssessment, $thresholds);
         }
         else {
             // No assessment yet
@@ -184,32 +218,7 @@ class SmeManagementController extends Controller
         // 3. Action Items (Derived from responses scoring < 50% of weight)
         $actions = [];
         if ($latestAssessment) {
-            $responses = AssessmentResponse::where('assessment_id', $latestAssessment->id)
-                ->with('question.pillar')
-                ->get();
-
-            $gaps = $responses->filter(function ($r) {
-                return $r->question && $r->question->weight > 0 && ($r->score_awarded / $r->question->weight) <= 0.5;
-            })->map(function ($r) {
-                $pillarName = $r->question->pillar ? $r->question->pillar->name : $r->question->pillar_id;
-                $max = (float)$r->question->weight;
-                $earned = (float)$r->score_awarded;
-                $ratio = $max > 0 ? ($earned / $max) : 1;
-
-                return [
-                    'id' => 'gap_' . $r->id,
-                    'title' => 'Improve: ' . $r->question->text,
-                    'description' => 'Current score: ' . round($ratio * 100) . '%. Addressing this gap could improve overall readiness by ' . round($max - $earned, 1) . ' points.',
-                    'priority' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
-                    'pillarRisk' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
-                    'pillar' => $pillarName,
-                    'impact' => round(($max - $earned), 1),
-                    'points' => round(($max - $earned), 1),
-                    'status' => 'pending'
-                ];
-            })->sortByDesc('impact')->values()->take(10);
-
-            $actions = $gaps->toArray();
+            $actions = $this->assessmentService->calculateTopActions($latestAssessment, 10);
         }
 
         return $this->success([

@@ -10,9 +10,18 @@ use App\Models\SmeProfile;
 use Illuminate\Http\Request;
 use App\Traits\ApiResponse;
 
+use App\Services\AssessmentService;
+
 class SmeDashboardController extends Controller
 {
     use ApiResponse;
+
+    protected $assessmentService;
+
+    public function __construct(AssessmentService $assessmentService)
+    {
+        $this->assessmentService = $assessmentService;
+    }
 
     /**
      * GET /api/sme/profile
@@ -69,23 +78,11 @@ class SmeDashboardController extends Controller
             ->latest()
             ->first();
 
-        $settings = \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
-        $globalThresholds = $settings ? ($settings->value['thresholds'] ?? []) : [
-            ['id' => 'investor', 'label' => 'Investment Ready', 'min' => 80, 'max' => 100],
-            ['id' => 'near', 'label' => 'Near Ready', 'min' => 60, 'max' => 79],
-            ['id' => 'early', 'label' => 'Early Stage', 'min' => 40, 'max' => 59],
-            ['id' => 'pre', 'label' => 'Pre-Investment', 'min' => 0, 'max' => 39],
-        ];
-
-        // --- NEW: Use program-specific thresholds if available ---
-        $thresholds = ($latestAssessment && $latestAssessment->program && !empty($latestAssessment->program->thresholds))
-            ? $latestAssessment->program->thresholds
-            : $globalThresholds;
-        // --- END THRESHOLDS LOGIC ---
+        $thresholds = $this->assessmentService->getThresholds($latestAssessment?->program_id);
 
         $pillarStats = [];
         if ($latestAssessment) {
-            $pillarStats = $this->calculatePillarScores($latestAssessment, $thresholds);
+            $pillarStats = $this->assessmentService->calculatePillarScores($latestAssessment, $thresholds);
         }
         else {
             // No assessment yet
@@ -115,33 +112,7 @@ class SmeDashboardController extends Controller
 
         $actions = [];
         if ($latestAssessment) {
-            $responses = AssessmentResponse::where('assessment_id', $latestAssessment->id)
-                ->with('question')
-                ->get();
-
-            $gaps = $responses->filter(function ($r) {
-                return $r->question && $r->question->weight > 0 && ($r->score_awarded / $r->question->weight) <= 0.5;
-            })->map(function ($r) {
-                $pModel = Pillar::find($r->question->pillar_id);
-                $pillarName = $pModel ? $pModel->name : $r->question->pillar_id;
-                $max = (float)$r->question->weight;
-                $earned = (float)$r->score_awarded;
-                $ratio = $max > 0 ? ($earned / $max) : 1;
-
-                return [
-                    'id' => 'gap_' . $r->id,
-                    'title' => 'Improve: ' . $r->question->text,
-                    'description' => 'Your current score for this indicator is ' . round($ratio * 100) . '%. Addressing this gap could improve your overall readiness by ' . round($max - $earned, 1) . ' points.',
-                    'priority' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
-                    'pillarRisk' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
-                    'pillar' => $pillarName,
-                    'impact' => round(($max - $earned), 1),
-                    'points' => round(($max - $earned), 1),
-                    'status' => 'pending'
-                ];
-            })->sortByDesc('impact')->values()->take(10);
-
-            $actions = $gaps->toArray();
+            $actions = $this->assessmentService->calculateTopActions($latestAssessment, 10);
         } else {
             // 🆕 Onboarding state: no assessment taken yet -> show a single getting-started action
             $actions[] = [
@@ -158,71 +129,66 @@ class SmeDashboardController extends Controller
             ];
         }
 
+        // 3. Goal Stats
+        $goals = \App\Models\Goal::where('sme_id', $profile->id)->get();
+        $activeGoals = $goals->filter(function($g) {
+            return in_array(strtolower($g->status), ['active', 'in progress', 'not started']);
+        });
+        $achievedGoals = $goals->filter(function($g) {
+            return in_array(strtolower($g->status), ['achieved', 'completed']);
+        });
+        
+        $activeGoalsCount = $activeGoals->count();
+        $achievedGoalsCount = $achievedGoals->count();
+        $avgProgress = $activeGoalsCount > 0 ? (int) $activeGoals->avg('progress_percentage') : 0;
+
+        $primaryDbGoal = $activeGoals->sortByDesc('created_at')->first();
+        $primaryGoal = null;
+        if ($primaryDbGoal) {
+            $now = now();
+            $dueDate = $primaryDbGoal->due_date ? \Carbon\Carbon::parse($primaryDbGoal->due_date) : null;
+            $overdue = false;
+            $daysRemaining = 0;
+            if ($dueDate) {
+                if ($dueDate->isPast()) {
+                    $overdue = true;
+                    $daysRemaining = $now->diffInDays($dueDate);
+                } else {
+                    $daysRemaining = $now->diffInDays($dueDate);
+                }
+            }
+            
+            $primaryGoal = [
+                'id' => $primaryDbGoal->id,
+                'title' => $primaryDbGoal->title,
+                'target' => $primaryDbGoal->target_score,
+                'progress' => $primaryDbGoal->progress_percentage ?? 0,
+                'isOverdue' => $overdue,
+                'daysRemaining' => $daysRemaining,
+                'focus' => $primaryDbGoal->description,
+            ];
+        }
+
         return $this->success([
             'company' => [
                 'name' => $profile->company_name ?? $user->full_name,
                 'industry' => $profile->industry,
                 'overallScore' => $latestAssessment ? (float)$latestAssessment->total_score : 0,
-                'risk_level' => $latestAssessment ? $this->getRiskLabel($latestAssessment->total_score, $thresholds) : 'Not Assessed',
+                'risk_level' => $latestAssessment ? $this->assessmentService->getThresholdLabel($latestAssessment->total_score, $thresholds) : 'Not Assessed',
+                'lastAssessed' => $latestAssessment ? $latestAssessment->completed_at->format('Y-M-d') : null,
                 'updated_at' => $latestAssessment ? $latestAssessment->completed_at->format('Y-m-d H:i:s') : $profile->updated_at->format('Y-m-d H:i:s')
             ],
             'thresholds' => $thresholds,
             'pillars' => $pillarStats,
             'progress' => $progress,
-            'actions' => $actions
+            'actions' => $actions,
+            'primaryGoal' => $primaryGoal,
+            'goalsStats' => [
+                'active' => $activeGoalsCount,
+                'achieved' => $achievedGoalsCount,
+                'progress' => $avgProgress
+            ]
         ]);
     }
 
-    private function getRiskLabel($score, $thresholds)
-    {
-        foreach ($thresholds as $t) {
-            if ($score >= $t['min'] && $score <= $t['max']) {
-                return $t['label'];
-            }
-        }
-        
-        // Fallback
-        if ($score >= 80) return 'Investor Ready';
-        if ($score >= 60) return 'Near Ready';
-        if ($score >= 40) return 'Early Stage';
-        return 'Pre-Investment';
-    }
-
-    private function calculatePillarScores($assessment, $thresholds)
-    {
-        $pillars = Pillar::all();
-        $responses = AssessmentResponse::where('assessment_id', $assessment->id)
-            ->with('question')
-            ->get();
-
-        $grouped = [];
-        foreach ($responses as $r) {
-            if (!$r->question)
-                continue;
-            $pid = $r->question->pillar_id;
-            if (!isset($grouped[$pid])) {
-                $grouped[$pid] = ['earned' => 0, 'max' => 0];
-            }
-            $grouped[$pid]['earned'] += (float)$r->score_awarded;
-            $grouped[$pid]['max'] += (float)$r->question->weight;
-        }
-
-        $stats = [];
-        foreach ($pillars as $p) {
-            $data = $grouped[$p->id] ?? ['earned' => 0, 'max' => 0];
-            $score = $data['max'] > 0 ? round(($data['earned'] / $data['max']) * 100, 1) : 0;
-            $improvementPotential = round(100 - $score, 1);
-
-            $stats[] = [
-                'id' => $p->id,
-                'name' => $p->name,
-                'score' => $score,
-                'weight' => (float)$p->weight,
-                'improvementPotential' => $improvementPotential,
-                'riskLevel' => $this->getRiskLabel($score, $thresholds)
-            ];
-        }
-
-        return $stats;
-    }
 }

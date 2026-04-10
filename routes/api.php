@@ -80,7 +80,6 @@ Route::group(['prefix' => 'admin', 'middleware' => ['auth:api', 'role:ADMIN']], 
     Route::get('reports/smes', [\App\Http\Controllers\Admin\ReportsController::class, 'smes']);
     Route::get('reports/scores', [\App\Http\Controllers\Admin\ReportsController::class, 'scores']);
     Route::get('reports/logs', [\App\Http\Controllers\Admin\ReportsController::class, 'logs']);
-    Route::get('reports/export', [\App\Http\Controllers\Admin\ReportsController::class, 'export']);
 });
 
 // Public report download routes — token auth is handled inside the controller
@@ -88,6 +87,8 @@ Route::get('admin/reports/readiness', [\App\Http\Controllers\Admin\ReportsContro
 Route::get('admin/reports/portfolio', [\App\Http\Controllers\Admin\ReportsController::class, 'portfolio']);
 // ✅ NEW: Poll for background batch report status (returns 'processing' | 'ready' | 'failed')
 Route::get('admin/reports/status', [\App\Http\Controllers\Admin\ReportsController::class, 'reportStatus']);
+Route::get('admin/reports/export', [\App\Http\Controllers\Admin\ReportsController::class, 'export']);
+
 
 
 // SME & Investor Shared/Specific Routes (Protected by Auth)

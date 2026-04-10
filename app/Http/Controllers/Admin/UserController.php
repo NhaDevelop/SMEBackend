@@ -7,9 +7,16 @@ use Illuminate\Http\Request;
 
 use App\Models\User;
 
+use App\Services\AssessmentService;
+
 class UserController extends Controller
 {
-    use \App\Traits\AssessmentScoring;
+    protected $assessmentService;
+
+    public function __construct(AssessmentService $assessmentService)
+    {
+        $this->assessmentService = $assessmentService;
+    }
     public function fetchPendingUsers() {
         $users = User::where('status', 'PENDING')->with(['smeProfile', 'investorProfile'])->get();
         return $this->success($users, 'Pending users retrieved successfully');
@@ -31,14 +38,6 @@ class UserController extends Controller
             }
         }
 
-        // Fetch dynamic thresholds
-        $settings = \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
-        $thresholds = $settings ? ($settings->value['thresholds'] ?? []) : [
-            ['id' => 'investor', 'label' => 'Investor Ready', 'min' => 80, 'max' => 100],
-            ['id' => 'near', 'label' => 'Near Ready', 'min' => 60, 'max' => 79],
-            ['id' => 'early', 'label' => 'Early Stage', 'min' => 40, 'max' => 59],
-            ['id' => 'pre', 'label' => 'Pre-Investment', 'min' => 0, 'max' => 39],
-        ];
 
         $query = User::where('role', 'SME')->where('status', 'ACTIVE')->with(['smeProfile.enrollments', 'smeProfile.assessments.responses.question']);
 
@@ -48,8 +47,10 @@ class UserController extends Controller
             });
         }
 
+        $thresholds = $this->assessmentService->getThresholds($programId);
+
         $smes = $query->get()
-            ->map(function($user) use ($templateId, $thresholds) {
+            ->map(function($user) use ($templateId, $thresholds, $programId) {
                 $profile = $user->smeProfile;
                 $enrollments = $profile ? $profile->enrollments : collect([]);
                 
@@ -65,7 +66,8 @@ class UserController extends Controller
                 }
 
                 $actualScore = $latestAssessment ? (float)$latestAssessment->total_score : 0;
-                $riskLabel = $latestAssessment ? $this->getRiskLabel($actualScore, $thresholds) : 'Not Assessed';
+                $t = $this->assessmentService->getThresholds($latestAssessment?->program_id ?? $programId);
+                $riskLabel = $latestAssessment ? $this->assessmentService->getThresholdLabel($actualScore, $t) : 'Not Assessed';
 
                 return [
                     'id' => $user->id,
@@ -76,7 +78,7 @@ class UserController extends Controller
                     'riskLevel' => $riskLabel,
                     'readinessStatus' => $latestAssessment ? ($profile->stage ?? 'In Analysis') : 'Needs Assessment',
                     'score' => $actualScore,
-                    'pillars' => $latestAssessment ? $this->calculatePillarScores($latestAssessment, $thresholds) : [],
+                    'pillars' => $latestAssessment ? $this->assessmentService->calculatePillarScores($latestAssessment, $t) : [],
                     'growthPotential' => 0,
                     'programIds' => $enrollments->pluck('program_id')->toArray(),
                     'programEnrollments' => $enrollments->map(function($e) {
@@ -226,18 +228,4 @@ class UserController extends Controller
         return $this->success(null, 'User deleted successfully');
     }
 
-    private function getRiskLabel($score, $thresholds)
-    {
-        foreach ($thresholds as $t) {
-            if ($score >= $t['min'] && $score <= $t['max']) {
-                return $t['label'];
-            }
-        }
-        
-        // Fallback for edge cases or if score is exactly 100
-        if ($score >= 80) return 'Investor Ready';
-        if ($score >= 60) return 'Near Ready';
-        if ($score >= 40) return 'Early Stage';
-        return 'Pre-Investment';
-    }
 }

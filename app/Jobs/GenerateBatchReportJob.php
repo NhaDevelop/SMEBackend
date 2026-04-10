@@ -37,6 +37,7 @@ class GenerateBatchReportJob implements ShouldQueue
             'programId' => $this->programId,
         ]);
 
+        $service = app(\App\Services\AssessmentService::class);
         $program = $this->programId ? Program::with('template')->find($this->programId) : null;
 
         $allSmeData = [];
@@ -48,16 +49,16 @@ class GenerateBatchReportJob implements ShouldQueue
 
             SmeProfile::with(['user', 'assessments.template', 'enrollments.program'])
                 ->whereIn('id', $smeIds)
-                ->chunk(100, function ($smes) use ($program, &$allSmeData) {
+                ->chunk(100, function ($smes) use ($service, &$allSmeData) {
                     foreach ($smes as $sme) {
-                        $allSmeData[] = $this->generateSmeReportData($sme, $program);
+                        $allSmeData[] = $service->generateSmeReportData($sme, $this->programId);
                     }
                 });
         } else {
             SmeProfile::with(['user', 'assessments.template', 'enrollments.program'])
-                ->chunk(100, function ($smes) use (&$allSmeData) {
+                ->chunk(100, function ($smes) use ($service, &$allSmeData) {
                     foreach ($smes as $sme) {
-                        $allSmeData[] = $this->generateSmeReportData($sme);
+                        $allSmeData[] = $service->generateSmeReportData($sme);
                     }
                 });
         }

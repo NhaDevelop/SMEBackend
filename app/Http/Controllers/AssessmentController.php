@@ -7,11 +7,18 @@ use App\Models\AssessmentResponse;
 use App\Models\Question;
 use App\Models\Template;
 use App\Models\SmeProfile;
+use App\Services\AssessmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class AssessmentController extends Controller
 {
+    protected $assessmentService;
+
+    public function __construct(AssessmentService $assessmentService)
+    {
+        $this->assessmentService = $assessmentService;
+    }
     public function getQuestions(Request $request)
     {
         // For now, get the first active template or a specific one if provided
@@ -131,21 +138,30 @@ class AssessmentController extends Controller
                 // Max points for this question
                 $pillarStats[$pillarId]['max'] += $question->weight;
 
+                $extractedValue = is_array($answerData['value']) 
+                    ? ($answerData['value']['label'] ?? $answerData['value']['value'] ?? json_encode($answerData['value'])) 
+                    : $answerData['value'];
+
                 // Points earned
-                if ($question->type === 'Yes/No' && ($answerData['value'] === true || $answerData['value'] === 'true' || $answerData['value'] === 'Yes')) {
-                    $scoreAwarded = $question->weight;
+                if ($question->type === 'Yes/No' && empty($question->options)) {
+                    if ($extractedValue === true || $extractedValue === 'true' || $extractedValue === 'Yes') {
+                        $scoreAwarded = $question->weight;
+                    }
                 }
                 elseif ($question->type === 'Scale (1-10)') {
-                    $scoreAwarded = ($answerData['value'] / 10) * $question->weight;
+                    $scoreAwarded = ((float)$extractedValue / 10) * $question->weight;
                 }
-                elseif (in_array($question->type, ['Multiple Choice', 'Single Choice', 'Dropdown Select'])) {
+                else {
+                    // Treat Multiple Choice, Single Choice, Dropdown Select, AND Yes/No with options the same
                     $options = collect($question->options);
-                    $selectedLabel = $answerData['value'];
-                    $option = $options->firstWhere('label', $selectedLabel);
+                    $option = $options->firstWhere('label', $extractedValue);
                     if ($option) {
                         // Level 3: Option Weighting (Treat points as percentage 0-100 of the question weight)
                         $optionPoints = data_get($option, 'points', 0);
                         $scoreAwarded = ($optionPoints / 100) * $question->weight;
+                    } elseif ($extractedValue === true || $extractedValue === 'true' || $extractedValue === 'Yes') {
+                        // Fallback in case it's a Yes/No type but the options were malformed
+                        $scoreAwarded = $question->weight;
                     }
                 }
 
@@ -163,20 +179,10 @@ class AssessmentController extends Controller
 
             AssessmentResponse::insert($responses);
 
-            // Final Weighted Score Calculation
-            $finalScore = 0;
-            foreach ($pillarStats as $pillarId => $stats) {
-                if ($stats['max'] > 0) {
-                    $pillar = $pillars->get($pillarId);
-                    $pillarWeight = $pillar ? $pillar->weight : 0;
-
-                    // (Earned in Pillar / Max in Pillar) * Global Pillar Weight
-                    $pillarPercentage = ($stats['earned'] / $stats['max']) * 100;
-                    $weightedContribution = ($pillarPercentage * $pillarWeight) / 100;
-
-                    $finalScore += $weightedContribution;
-                }
-            }
+            // REFACTORED: Use AssessmentService for final score calculation
+            $thresholds = $this->assessmentService->getThresholds($assessment->program_id);
+            $pillarScores = $this->assessmentService->calculatePillarScores($assessment, $thresholds);
+            $finalScore = $this->assessmentService->calculateTotalScore($pillarScores);
 
             // Cap at 100 just in case
             $finalScore = min(100, round($finalScore, 2));
@@ -209,34 +215,9 @@ class AssessmentController extends Controller
             ->get();
 
         $history = $assessments->map(function ($assessment, $index) use ($assessments) {
-            $pillars = \App\Models\Pillar::all();
-            $responses = \App\Models\AssessmentResponse::where('assessment_id', $assessment->id)
-                ->with('question')
-                ->get();
-
-            $grouped = [];
-            foreach ($responses as $r) {
-                if (!$r->question) continue;
-                $pid = $r->question->pillar_id;
-                if (!isset($grouped[$pid])) {
-                    $grouped[$pid] = ['earned' => 0, 'max' => 0];
-                }
-                $grouped[$pid]['earned'] += (float)$r->score_awarded;
-                $grouped[$pid]['max'] += (float)$r->question->weight;
-            }
-
-            $pillarStats = [];
-            foreach ($pillars as $p) {
-                $data = $grouped[$p->id] ?? ['earned' => 0, 'max' => 0];
-                $score = $data['max'] > 0 ? round(($data['earned'] / $data['max']) * 100, 1) : 0;
-                $pillarStats[] = [
-                    'name' => $p->name,
-                    'score' => $score
-                ];
-            }
-
-            // Sort by score descending to get top pillars
-            $sortedPillars = collect($pillarStats)->sortByDesc('score')->values()->all();
+            $thresholds = $this->assessmentService->getThresholds($assessment->program_id);
+            $pillarStats = $this->assessmentService->calculatePillarScores($assessment, $thresholds);
+            $sortedPillars = $this->assessmentService->getTopPillars($pillarStats, 4);
 
             $change = null;
             if (isset($assessments[$index + 1])) {
@@ -253,12 +234,7 @@ class AssessmentController extends Controller
                 'score' => (float)$assessment->total_score,
                 'change' => $change,
                 'isLatest' => $index === 0,
-                'topPillars' => array_map(function($p) {
-                    return [
-                        'name' => explode(' ', trim($p['name']))[0],
-                        'score' => $p['score']
-                    ];
-                }, array_slice($sortedPillars, 0, 4)),
+                'topPillars' => $sortedPillars,
                 'pillars' => $pillarStats
             ];
         });
