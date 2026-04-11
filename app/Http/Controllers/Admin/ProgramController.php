@@ -190,8 +190,15 @@ class ProgramController extends Controller
     {
         $totalSmes = $program->smes_count ?? ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count();
         $totalInvestors = $program->investors_count ?? ProgramEnrollment::where('program_id', $program->id)->whereNotNull('investor_id')->count();
-        $progress = 0;
-        $avgScore = 0;
+        
+        $completedAssessments = \App\Models\Assessment::where('program_id', $program->id)
+            ->where('status', 'Completed')
+            ->select('sme_id', 'total_score')
+            ->get();
+            
+        $uniqueCompleted = $completedAssessments->unique('sme_id');
+        $progress = $totalSmes > 0 ? round(($uniqueCompleted->count() / $totalSmes) * 100) : 0;
+        $avgScore = $uniqueCompleted->count() > 0 ? round($uniqueCompleted->avg('total_score')) : 0;
 
         $isEnrolled = in_array($program->id, $userEnrollments);
         $user = auth('api')->user();

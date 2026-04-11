@@ -14,14 +14,12 @@ use Illuminate\Support\Facades\DB;
 class AssessmentController extends Controller
 {
     protected $assessmentService;
-
     public function __construct(AssessmentService $assessmentService)
     {
         $this->assessmentService = $assessmentService;
     }
     public function getQuestions(Request $request)
-    {
-        // For now, get the first active template or a specific one if provided
+    { // For now, get the first active template or a specific one if provided
         $template = Template::where('status', 'Active')->first();
         if (!$template) {
             return $this->error('No active assessment template found', 404);
@@ -38,7 +36,7 @@ class AssessmentController extends Controller
     {
         $validated = $request->validate([
             'template_id' => 'required|exists:templates,id',
-            'program_id'  => 'nullable|exists:programs,id'
+            'program_id' => 'nullable|exists:programs,id'
         ]);
 
         $user = auth()->user();
@@ -72,11 +70,11 @@ class AssessmentController extends Controller
         }
 
         $assessment = Assessment::create([
-            'sme_id'      => $user->smeProfile->id,
+            'sme_id' => $user->smeProfile->id,
             'template_id' => $validated['template_id'],
-            'program_id'  => $program ? $program->id : null,
-            'status'      => 'In Progress',
-            'started_at'  => now()
+            'program_id' => $program ? $program->id : null,
+            'status' => 'In Progress',
+            'started_at' => now()
         ]);
 
         return $this->success([
@@ -138,8 +136,8 @@ class AssessmentController extends Controller
                 // Max points for this question
                 $pillarStats[$pillarId]['max'] += $question->weight;
 
-                $extractedValue = is_array($answerData['value']) 
-                    ? ($answerData['value']['label'] ?? $answerData['value']['value'] ?? json_encode($answerData['value'])) 
+                $extractedValue = is_array($answerData['value'])
+                    ? ($answerData['value']['label'] ?? $answerData['value']['value'] ?? json_encode($answerData['value']))
                     : $answerData['value'];
 
                 // Points earned
@@ -147,18 +145,15 @@ class AssessmentController extends Controller
                     if ($extractedValue === true || $extractedValue === 'true' || $extractedValue === 'Yes') {
                         $scoreAwarded = $question->weight;
                     }
-                }
-                elseif ($question->type === 'Scale (1-10)') {
-                    $scoreAwarded = ((float)$extractedValue / 10) * $question->weight;
-                }
-                else {
+                } elseif ($question->type === 'Scale (1-10)') {
+                    $scoreAwarded = ((float) $extractedValue / 10) * $question->weight;
+                } else {
                     // Treat Multiple Choice, Single Choice, Dropdown Select, AND Yes/No with options the same
                     $options = collect($question->options);
                     $option = $options->firstWhere('label', $extractedValue);
                     if ($option) {
-                        // Level 3: Option Weighting (Treat points as percentage 0-100 of the question weight)
-                        $optionPoints = data_get($option, 'points', 0);
-                        $scoreAwarded = ($optionPoints / 100) * $question->weight;
+                        // Use the exact point value defined in the option for this question
+                        $scoreAwarded = (float) data_get($option, 'points', 0);
                     } elseif ($extractedValue === true || $extractedValue === 'true' || $extractedValue === 'Yes') {
                         // Fallback in case it's a Yes/No type but the options were malformed
                         $scoreAwarded = $question->weight;
@@ -218,7 +213,6 @@ class AssessmentController extends Controller
             $thresholds = $this->assessmentService->getThresholds($assessment->program_id);
             $pillarStats = $this->assessmentService->calculatePillarScores($assessment, $thresholds);
             $sortedPillars = $this->assessmentService->getTopPillars($pillarStats, 4);
-
             $change = null;
             if (isset($assessments[$index + 1])) {
                 $prev = $assessments[$index + 1];
@@ -231,7 +225,7 @@ class AssessmentController extends Controller
                 'id' => $assessment->id,
                 'name' => $templateName,
                 'date' => $assessment->completed_at ? $assessment->completed_at->format('F j, Y') : $assessment->created_at->format('F j, Y'),
-                'score' => (float)$assessment->total_score,
+                'score' => (float) $assessment->total_score,
                 'change' => $change,
                 'isLatest' => $index === 0,
                 'topPillars' => $sortedPillars,
