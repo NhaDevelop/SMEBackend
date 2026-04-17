@@ -147,8 +147,29 @@ class AssessmentController extends Controller
                     }
                 } elseif ($question->type === 'Scale (1-10)') {
                     $scoreAwarded = ((float) $extractedValue / 10) * $question->weight;
+                } elseif ($question->type === 'Multiple Choice') {
+                    // ARRAY LOGIC FOR CHECKBOXES
+                    $options = collect($question->options);
+                    $runningScore = 0;
+                    
+                    // Recover array if encoded natively
+                    $multiAnswers = is_array($answerData['value']) && isset($answerData['value'][0]) 
+                        ? $answerData['value'] 
+                        : (json_decode($extractedValue, true) ?? []);
+                        
+                    if (!is_array($multiAnswers)) {
+                        $multiAnswers = [$extractedValue]; // fallback
+                    }
+
+                    foreach ($multiAnswers as $mAnswer) {
+                        $option = $options->firstWhere('label', $mAnswer);
+                        if ($option) {
+                            $runningScore += (float) data_get($option, 'points', 0);
+                        }
+                    }
+                    $scoreAwarded = min($question->weight, $runningScore);
                 } else {
-                    // Treat Multiple Choice, Single Choice, Dropdown Select, AND Yes/No with options the same
+                    // Treat Single Choice, Dropdown Select, AND Yes/No with options the same
                     $options = collect($question->options);
                     $option = $options->firstWhere('label', $extractedValue);
                     if ($option) {

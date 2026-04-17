@@ -653,16 +653,19 @@ class InvestorController extends Controller
                 }
 
                 // Calculate average score if there's an associated template
-                $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
-                    ->whereIn('sme_id', ProgramEnrollment::where('program_id', $program->id)
+                $smeIds = ProgramEnrollment::where('program_id', $program->id)
                         ->whereNotNull('sme_id')
-                        ->pluck('sme_id'))
+                        ->pluck('sme_id');
+                $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
+                    ->whereIn('sme_id', $smeIds)
                     ->where('status', 'Completed')
-                    ->get();
+                    ->latest('completed_at')
+                    ->get()
+                    ->unique('sme_id');
 
                 $completedCount = $completedAssessments->count();
                 $avgScore = $completedCount > 0 ? round($completedAssessments->avg('total_score'), 1) : 0;
-                $progress = $totalSmes > 0 ? round(($completedCount / $totalSmes) * 100) : 0;
+                $progress = $totalSmes > 0 ? min(100, max(0, round(($completedCount / $totalSmes) * 100))) : 0;
 
                 return [
                     'id' => $program->id,

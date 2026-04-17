@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
-
 use App\Services\AssessmentService;
 
 class ReportsController extends Controller
@@ -199,7 +198,6 @@ class ReportsController extends Controller
             $assessments = $query->get();
 
             $totalAssessments = $assessments->count();
-
             if ($totalAssessments === 0) {
                 return $this->success([
                     'total_assessments' => 0,

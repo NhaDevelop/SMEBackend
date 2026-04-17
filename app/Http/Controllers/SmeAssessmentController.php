@@ -36,13 +36,18 @@ class SmeAssessmentController extends Controller
 
             if ($totalSmes > 0 && $program->template_id) {
                 $smeIds = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->pluck('sme_id');
+                // Get the latest completed assessment per SME to prevent multi-assessment stat overflow
                 $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
                     ->whereIn('sme_id', $smeIds)
                     ->where('status', 'Completed')
-                    ->get();
+                    ->latest('completed_at')
+                    ->get()
+                    ->unique('sme_id');
 
                 $completedCount = $completedAssessments->count();
                 $progress = round(($completedCount / $totalSmes) * 100);
+                // Clamp mathematically to prevent edge-case 100%+ errors just in case
+                $progress = min(100, max(0, $progress));
                 $avgScore = round($completedCount > 0 ? $completedAssessments->avg('total_score') : 0);
             }
 
@@ -187,13 +192,18 @@ class SmeAssessmentController extends Controller
 
                 if ($totalSmes > 0 && $program->template_id) {
                     $smeIds = ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->pluck('sme_id');
+                    // Get the latest completed assessment per SME to prevent multi-assessment stat overflow
                     $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
                         ->whereIn('sme_id', $smeIds)
                         ->where('status', 'Completed')
-                        ->get();
+                        ->latest('completed_at')
+                        ->get()
+                        ->unique('sme_id');
 
                     $completedCount = $completedAssessments->count();
                     $progress = round(($completedCount / $totalSmes) * 100);
+                    // Clamp mathematically
+                    $progress = min(100, max(0, $progress));
                     $avgScore = round($completedCount > 0 ? $completedAssessments->avg('total_score') : 0);
                 }
 

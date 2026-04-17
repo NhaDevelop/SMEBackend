@@ -91,6 +91,8 @@ class AssessmentService
         foreach ($pillars as $p) {
             $data = $grouped[$p->id] ?? ['earned' => 0, 'max' => 0];
             $score = $data['max'] > 0 ? round(($data['earned'] / $data['max']) * 100, 1) : 0;
+            // GLOBALLY CAP AT 100% to prevent over-configuration of points exceeding weights
+            $score = min(100, max(0, $score));
             
             $result[] = [
                 'id'          => $p->id,
@@ -120,24 +122,63 @@ class AssessmentService
 
         $pillars = Pillar::all()->keyBy('id');
 
+        $pillarMaxes = [];
+        foreach ($responses as $r) {
+            if (!$r->question) continue;
+            $pid = $r->question->pillar_id;
+            $pillarMaxes[$pid] = ($pillarMaxes[$pid] ?? 0) + (float)$r->question->weight;
+        }
+
         $gaps = $responses->filter(function ($r) {
             return $r->question && $r->question->weight > 0 && ($r->score_awarded / $r->question->weight) <= 0.5;
-        })->map(function ($r) use ($pillars) {
+        })->map(function ($r) use ($pillars, $pillarMaxes) {
             $pModel = $pillars->get($r->question->pillar_id);
             $pillarName = $pModel ? $pModel->name : 'Unknown';
             
             $max = (float)$r->question->weight;
             $earned = (float)$r->score_awarded;
             $ratio = $max > 0 ? ($earned / $max) : 1;
+
+            // Extract user answer directly (Laravel automatically casts JSON to array)
+            $userValue = $r->answer_value;
+            $userAnswerStr = null;
+            if (is_array($userValue)) {
+                $userAnswerStr = $userValue['label'] ?? $userValue['value'] ?? implode(', ', $userValue);
+            } else {
+                $userAnswerStr = $userValue;
+            }
+
+            // Find highest scoring option as a recommendation if available
+            $bestOptionStr = null;
+            if (!empty($r->question->options) && is_array($r->question->options)) {
+                $maxPoints = -1;
+                foreach ($r->question->options as $opt) {
+                    $pts = (float)(data_get($opt, 'points', 0));
+                    if ($pts > $maxPoints) {
+                        $maxPoints = $pts;
+                        $bestOptionStr = data_get($opt, 'label', '');
+                    }
+                }
+            }
+
+            // Calculate percentage impact on the pillar scale explicitly
+            $pillarTotalMax = $pillarMaxes[$r->question->pillar_id] ?? 1;
+            $pillarImpactPercentage = $pillarTotalMax > 0 ? round((($max - $earned) / $pillarTotalMax) * 100, 1) : 0;
+            
+            // Fallback description to generic helper_text if no best option
+            $description = $r->question->helper_text ?: 'Addressing this gap could explicitly improve your overall readiness by ' . round($max - $earned, 1) . ' points.';
             
             return [
                 'id' => 'gap_' . $r->id,
                 'title' => 'Improve: ' . ($r->question->text ?? $r->question->title ?? 'Unknown Question'),
-                'description' => 'Your current score for this indicator is ' . round($ratio * 100) . '%. Addressing this gap could improve your overall readiness by ' . round($max - $earned, 1) . ' points.',
+                'description' => $description,
+                'userAnswer' => $userAnswerStr ?: 'No clear answer provided',
+                'bestOption' => $bestOptionStr,
                 'priority' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
                 'pillarRisk' => $ratio <= 0.2 ? 'high' : ($ratio <= 0.5 ? 'medium' : 'low'),
                 'pillar' => $pillarName,
                 'impact' => round(($max - $earned), 1),
+                'pillarImpactPercentage' => $pillarImpactPercentage,
                 'points' => round(($max - $earned), 1),
                 'status' => 'pending'
             ];

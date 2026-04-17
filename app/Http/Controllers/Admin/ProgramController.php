@@ -12,12 +12,10 @@ use App\Traits\ApiResponse;
 class ProgramController extends Controller
 {
     use ApiResponse;
-
     public function index()
     {
         $user = auth('api')->user();
         $query = Program::with(['template']);
-        
         // If not admin, only show Published programs
         if (!$user || $user->role !== 'ADMIN') {
             $query->whereIn('status', ['Published', 'Active', 'Open']);

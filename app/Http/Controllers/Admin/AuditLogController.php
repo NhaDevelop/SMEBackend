@@ -17,10 +17,8 @@ class AuditLogController extends Controller
         $logs = AuditLog::with('user:id,full_name,email')
             ->orderBy('created_at', 'desc')
             ->paginate(15);
-
         return $this->success($logs, 'Audit logs retrieved successfully');
     }
-
     /**
      * Display the specified audit log.
      */
