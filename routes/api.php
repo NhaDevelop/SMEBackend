@@ -9,8 +9,11 @@ Route::get('programs', [\App\Http\Controllers\Admin\ProgramController::class, 'i
 Route::get('programs/{id}', [\App\Http\Controllers\Admin\ProgramController::class, 'show']);
 
 Route::group(['prefix' => 'auth'], function () {
-    Route::post('register', [AuthController::class, 'register']);
-    Route::post('login', [AuthController::class, 'login']);
+    // Fix #2: Throttle login/register — 10 attempts per minute per IP to prevent brute force
+    Route::middleware('throttle:10,1')->group(function () {
+        Route::post('register', [AuthController::class, 'register']);
+        Route::post('login', [AuthController::class, 'login']);
+    });
 
     // Protected routes
     Route::middleware('auth:api')->group(
@@ -103,7 +106,8 @@ Route::middleware('auth:api')->group(function () {
         function () {
             Route::get('questions', [App\Http\Controllers\AssessmentController::class, 'getQuestions']);
             Route::post('start', [App\Http\Controllers\AssessmentController::class, 'start']);
-            Route::post('{id}/submit', [App\Http\Controllers\AssessmentController::class, 'submit']);
+            // Fix #2: Limit to 5 assessment submissions per minute to prevent spam
+            Route::middleware('throttle:5,1')->post('{id}/submit', [App\Http\Controllers\AssessmentController::class, 'submit']);
             Route::get('history', [App\Http\Controllers\AssessmentController::class, 'history']);
         }
     );

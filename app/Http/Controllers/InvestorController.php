@@ -71,7 +71,12 @@ class InvestorController extends Controller
             'smeProfile',
             'smeProfile.enrollments',
             'smeProfile.assessments' => function ($query) {
-                $query->where('status', 'Completed')->orderBy('completed_at', 'asc')->with('program');
+                $query->where('status', 'Completed')->orderBy('completed_at', 'asc')->with([
+                    'program',
+                    // Eager-load responses & questions so calculatePillarScores()
+                    // does NOT fire extra DB queries per SME (fixes N+1)
+                    'responses.question',
+                ]);
             }
         ])
             ->get()
@@ -243,7 +248,12 @@ class InvestorController extends Controller
         $smes = $query->with([
             'smeProfile',
             'smeProfile.assessments' => function ($q) {
-                $q->where('status', 'Completed')->orderBy('completed_at', 'asc')->with('program');
+                $q->where('status', 'Completed')->orderBy('completed_at', 'asc')->with([
+                    'program',
+                    // Eager-load responses & questions so calculatePillarScores()
+                    // does NOT fire extra DB queries per SME (fixes N+1)
+                    'responses.question',
+                ]);
             }
         ])
             ->get()

@@ -85,8 +85,8 @@ class SmeDashboardController extends Controller
             $pillarStats = $this->assessmentService->calculatePillarScores($latestAssessment, $thresholds);
         }
         else {
-            // No assessment yet
-            $pillars = Pillar::all();
+            // No assessment yet — use cached pillars
+            $pillars = \Illuminate\Support\Facades\Cache::remember('pillars_all', 3600, fn() => Pillar::all());
             foreach ($pillars as $p) {
                 $pillarStats[] = [
                     'id' => $p->id,
@@ -98,11 +98,14 @@ class SmeDashboardController extends Controller
             }
         }
 
-        // 2. Progress Data
+        // Fix #6: Limit to most recent 12 entries — prevents unbounded growth as SME retakes assessments
         $progress = Assessment::where('sme_id', $profile->id)
             ->where('status', 'Completed')
-            ->orderBy('completed_at', 'asc')
+            ->orderBy('completed_at', 'desc')
+            ->limit(12)
             ->get()
+            ->reverse()
+            ->values()
             ->map(function ($a) {
             return [
             'month' => $a->completed_at->format('M'),

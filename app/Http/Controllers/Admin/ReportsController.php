@@ -334,7 +334,7 @@ class ReportsController extends Controller
             "Expires" => "0"
         ];
 
-        $pillars = \App\Models\Pillar::pluck('name', 'id');
+        $pillars = \Illuminate\Support\Facades\Cache::remember('pillars_pluck', 3600, fn() => \App\Models\Pillar::pluck('name', 'id'));
 
         $callback = function () use ($smes, $programId, $pillars) {
             $file = fopen('php://output', 'w');
@@ -532,6 +532,7 @@ class ReportsController extends Controller
             try {
                 /** @var \PHPOpenSourceSaver\JWTAuth\JWTGuard $guard */
                 $guard = Auth::guard('api');
+                /** @var \App\Models\User $user */
                 $user = $guard->setToken($token)->authenticate();
                 if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
                     return $this->error('Unauthorized', 401);
@@ -590,6 +591,7 @@ class ReportsController extends Controller
             try {
                 /** @var \PHPOpenSourceSaver\JWTAuth\JWTGuard $guard */
                 $guard = Auth::guard('api');
+                /** @var \App\Models\User $user */
                 $user = $guard->setToken($token)->authenticate();
                 if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
                     return $this->error('Unauthorized', 401);
@@ -994,22 +996,30 @@ class ReportsController extends Controller
             ->with('smeProfile.user')
             ->get();
 
+        // Pre-load ALL completed assessments for this program's template in ONE query
+        // to prevent N+1 (was querying per SME inside the loop)
+        $smeIds = $enrollments->pluck('sme_id')->filter();
+        $allAssessments = Assessment::whereIn('sme_id', $smeIds)
+            ->where('template_id', $program->template_id)
+            ->where('status', 'Completed')
+            ->latest()
+            ->get()
+            ->unique('sme_id') // keep only latest per SME
+            ->keyBy('sme_id');
+
         $smeData = [];
         $totalScore = 0;
         $completedCount = 0;
+        $t = $this->assessmentService->getThresholds($program->id);
 
         foreach ($enrollments as $enrollment) {
             $sme = $enrollment->smeProfile;
             if (!$sme)
                 continue;
 
-            $assessment = Assessment::where('sme_id', $sme->id)
-                ->where('template_id', $program->template_id)
-                ->where('status', 'Completed')
-                ->latest()
-                ->first();
+            // Use pre-loaded collection instead of DB query per SME
+            $assessment = $allAssessments->get($sme->id);
 
-            $t = $this->assessmentService->getThresholds($program->id);
             $pillarScores = $assessment ? $this->assessmentService->calculatePillarScores($assessment, $t) : [];
 
             if ($assessment) {
@@ -1018,17 +1028,17 @@ class ReportsController extends Controller
             }
 
             $smeData[] = [
-                'sme_id' => $sme->id,
-                'company_name' => $sme->company_name,
-                'contact_name' => $sme->user?->full_name,
-                'email' => $sme->user?->email,
-                'industry' => $sme->industry,
+                'sme_id'            => $sme->id,
+                'company_name'      => $sme->company_name,
+                'contact_name'      => $sme->user?->full_name,
+                'email'             => $sme->user?->email,
+                'industry'          => $sme->industry,
                 'enrollment_status' => $enrollment->status,
-                'enrolled_at' => $enrollment->enrollment_date?->format('Y-m-d'),
-                'assessment_score' => $assessment?->total_score,
-                'risk_level' => $assessment ? $this->assessmentService->getThresholdLabel($assessment->total_score, $t) : 'N/A',
-                'completed_at' => $assessment?->completed_at?->format('Y-m-d'),
-                'pillar_scores' => $pillarScores
+                'enrolled_at'       => $enrollment->enrollment_date?->format('Y-m-d'),
+                'assessment_score'  => $assessment?->total_score,
+                'risk_level'        => $assessment ? $this->assessmentService->getThresholdLabel($assessment->total_score, $t) : 'N/A',
+                'completed_at'      => $assessment?->completed_at?->format('Y-m-d'),
+                'pillar_scores'     => $pillarScores
             ];
         }
 

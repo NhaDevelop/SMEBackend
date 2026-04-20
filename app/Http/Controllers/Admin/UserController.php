@@ -18,12 +18,14 @@ class UserController extends Controller
         $this->assessmentService = $assessmentService;
     }
     public function fetchPendingUsers() {
-        $users = User::where('status', 'PENDING')->with(['smeProfile', 'investorProfile'])->get();
+        // Fix #3: limit(500) safety cap — keeps memory bounded without breaking frontend's flat-array response
+        $users = User::where('status', 'PENDING')->with(['smeProfile', 'investorProfile'])->limit(500)->get();
         return $this->success($users, 'Pending users retrieved successfully');
     }
 
     public function getApprovedUsers() {
-        $users = User::where('status', 'ACTIVE')->with(['smeProfile', 'investorProfile'])->get();
+        // Fix #3: limit(500) safety cap — keeps memory bounded without breaking frontend's flat-array response
+        $users = User::where('status', 'ACTIVE')->with(['smeProfile', 'investorProfile'])->latest()->limit(500)->get();
         return $this->success($users, 'Approved users retrieved successfully');
     }
 

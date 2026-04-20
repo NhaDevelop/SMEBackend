@@ -16,9 +16,11 @@ class ProgramCommentController extends Controller
     {
         $program = Program::findOrFail($programId);
 
+        // Fix #7: Limit to 50 most recent comments to prevent memory issues on large threads
         $comments = ProgramComment::with(['user:id,full_name,role'])
             ->where('program_id', $program->id)
             ->latest()
+            ->limit(50)
             ->get();
 
         return $this->success($comments, 'Program comments retrieved successfully');

@@ -73,10 +73,23 @@ class AssessmentService
      */
     public function calculatePillarScores(Assessment $assessment, array $thresholds): array
     {
-        $pillars = Pillar::all()->keyBy('id');
-        $responses = AssessmentResponse::where('assessment_id', $assessment->id)
-            ->with('question')
-            ->get();
+        // Use Cache::remember for pillars since they rarely change
+        $pillars = \Illuminate\Support\Facades\Cache::remember('pillars_keyed', 3600, function () {
+            return Pillar::all()->keyBy('id');
+        });
+
+        // ── KEY PERFORMANCE FIX ──────────────────────────────────────────────────
+        // If responses are already eager-loaded on the model (e.g. when called
+        // from InvestorController dealflow/analytics), use them directly.
+        // This prevents N+1 queries (1 extra DB query per SME in a loop).
+        // ────────────────────────────────────────────────────────────────────────
+        if ($assessment->relationLoaded('responses')) {
+            $responses = $assessment->responses->filter(fn($r) => $r->question !== null);
+        } else {
+            $responses = AssessmentResponse::where('assessment_id', $assessment->id)
+                ->with('question')
+                ->get();
+        }
 
         $grouped = [];
         foreach ($responses as $r) {
