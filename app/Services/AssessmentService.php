@@ -153,12 +153,26 @@ class AssessmentService
             $ratio = $max > 0 ? ($earned / $max) : 1;
 
             // Extract user answer directly (Laravel automatically casts JSON to array)
+            // NOTE: answer_value can be bool, int, string, flat array, or nested array
             $userValue = $r->answer_value;
             $userAnswerStr = null;
-            if (is_array($userValue)) {
-                $userAnswerStr = $userValue['label'] ?? $userValue['value'] ?? implode(', ', $userValue);
+            if (is_bool($userValue)) {
+                $userAnswerStr = $userValue ? 'Yes' : 'No';
+            } elseif (is_array($userValue)) {
+                // Could be a flat list or a nested array of option objects like [{label, points}]
+                if (isset($userValue['label'])) {
+                    $userAnswerStr = $userValue['label'];
+                } elseif (isset($userValue['value'])) {
+                    $userAnswerStr = $userValue['value'];
+                } elseif (isset($userValue[0]) && is_array($userValue[0])) {
+                    // Nested: [{label: '100%', points: 20}, ...]
+                    $userAnswerStr = collect($userValue)->map(fn($v) => data_get($v, 'label', data_get($v, 'value', '')))->filter()->implode(', ');
+                } else {
+                    // Flat array of scalars
+                    $userAnswerStr = collect($userValue)->filter(fn($v) => is_scalar($v))->implode(', ');
+                }
             } else {
-                $userAnswerStr = $userValue;
+                $userAnswerStr = (string) $userValue;
             }
 
             // Find highest scoring option as a recommendation if available

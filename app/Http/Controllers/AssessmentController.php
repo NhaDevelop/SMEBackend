@@ -137,7 +137,11 @@ class AssessmentController extends Controller
                 $pillarStats[$pillarId]['max'] += $question->weight;
 
                 $extractedValue = is_array($answerData['value'])
-                    ? ($answerData['value']['label'] ?? $answerData['value']['value'] ?? json_encode($answerData['value']))
+                    ? ($answerData['value']['label'] ?? $answerData['value']['value'] ?? (
+                        (isset($answerData['value'][0]) && is_array($answerData['value'][0]))
+                            ? ($answerData['value'][0]['label'] ?? $answerData['value'][0]['value'] ?? json_encode($answerData['value']))
+                            : json_encode($answerData['value'])
+                    ))
                     : $answerData['value'];
 
                 // Points earned
@@ -162,7 +166,8 @@ class AssessmentController extends Controller
                     }
 
                     foreach ($multiAnswers as $mAnswer) {
-                        $option = $options->firstWhere('label', $mAnswer);
+                        $mLabel = is_array($mAnswer) ? ($mAnswer['label'] ?? $mAnswer['value'] ?? '') : $mAnswer;
+                        $option = $options->firstWhere('label', $mLabel);
                         if ($option) {
                             $runningScore += (float) data_get($option, 'points', 0);
                         }

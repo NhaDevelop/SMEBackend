@@ -17,19 +17,38 @@ class UserController extends Controller
     {
         $this->assessmentService = $assessmentService;
     }
-    public function fetchPendingUsers() {
-        // Fix #3: limit(500) safety cap — keeps memory bounded without breaking frontend's flat-array response
-        $users = User::where('status', 'PENDING')->with(['smeProfile', 'investorProfile'])->limit(500)->get();
-        return $this->success($users, 'Pending users retrieved successfully');
+    public function fetchPendingUsers()
+    {
+        // Updated to use server-side pagination instead of fetching everything at once
+        $paginator = User::where('status', 'PENDING')->with(['smeProfile', 'investorProfile'])->paginate(15);
+        $responseArray = $paginator->toArray();
+        $responseArray['stats'] = [
+            'total' => User::count(),
+            'pending' => User::where('status', 'PENDING')->count(),
+            'smes' => User::where('role', 'SME')->count(),
+            'investors' => User::where('role', 'INVESTOR')->count(),
+            'admins' => User::where('role', 'ADMIN')->count(),
+        ];
+        return $this->success($responseArray, 'Pending users retrieved successfully');
     }
 
-    public function getApprovedUsers() {
-        // Fix #3: limit(500) safety cap — keeps memory bounded without breaking frontend's flat-array response
-        $users = User::where('status', 'ACTIVE')->with(['smeProfile', 'investorProfile'])->latest()->limit(500)->get();
-        return $this->success($users, 'Approved users retrieved successfully');
+    public function getApprovedUsers()
+    {
+        // Updated to use server-side pagination instead of fetching everything at once
+        $paginator = User::where('status', 'ACTIVE')->with(['smeProfile', 'investorProfile'])->latest()->paginate(15);
+        $responseArray = $paginator->toArray();
+        $responseArray['stats'] = [
+            'total' => User::count(),
+            'pending' => User::where('status', 'PENDING')->count(),
+            'smes' => User::where('role', 'SME')->count(),
+            'investors' => User::where('role', 'INVESTOR')->count(),
+            'admins' => User::where('role', 'ADMIN')->count(),
+        ];
+        return $this->success($responseArray, 'Approved users retrieved successfully');
     }
 
-    public function getSmesData(Request $request) {
+    public function getSmesData(Request $request)
+    {
         $programId = $request->query('program_id');
         $templateId = null;
 
@@ -52,13 +71,13 @@ class UserController extends Controller
         $thresholds = $this->assessmentService->getThresholds($programId);
 
         $smes = $query->get()
-            ->map(function($user) use ($templateId, $thresholds, $programId) {
+            ->map(function ($user) use ($templateId, $thresholds, $programId) {
                 $profile = $user->smeProfile;
                 $enrollments = $profile ? $profile->enrollments : collect([]);
-                
+
                 // Strict Score Logic: Filter by template if provided, else get latest overall
                 $assessmentsQuery = $profile ? $profile->assessments : collect([]);
-                
+
                 if ($templateId) {
                     $latestAssessment = $assessmentsQuery->where('template_id', $templateId)
                         ->sortByDesc('completed_at')
@@ -67,13 +86,14 @@ class UserController extends Controller
                     $latestAssessment = $assessmentsQuery->sortByDesc('completed_at')->first();
                 }
 
-                $actualScore = $latestAssessment ? (float)$latestAssessment->total_score : 0;
+                $actualScore = $latestAssessment ? (float) $latestAssessment->total_score : 0;
                 $t = $this->assessmentService->getThresholds($latestAssessment?->program_id ?? $programId);
                 $riskLabel = $latestAssessment ? $this->assessmentService->getThresholdLabel($actualScore, $t) : 'Not Assessed';
 
                 return [
                     'id' => $user->id,
                     'name' => $profile->company_name ?? $user->full_name,
+                    'user_name' => $user->full_name,
                     'industry' => $profile->industry ?? 'N/A',
                     'location' => $profile->address ?? 'N/A',
                     'lastAssessed' => $latestAssessment ? $latestAssessment->completed_at->format('Y-m-d') : 'Never',
@@ -83,7 +103,7 @@ class UserController extends Controller
                     'pillars' => $latestAssessment ? $this->assessmentService->calculatePillarScores($latestAssessment, $t) : [],
                     'growthPotential' => 0,
                     'programIds' => $enrollments->pluck('program_id')->toArray(),
-                    'programEnrollments' => $enrollments->map(function($e) {
+                    'programEnrollments' => $enrollments->map(function ($e) {
                         return [
                             'programId' => $e->program_id,
                             'status' => $e->status,
@@ -95,12 +115,14 @@ class UserController extends Controller
         return $this->success($smes, 'SME data retrieved successfully');
     }
 
-    public function show($id) {
+    public function show($id)
+    {
         $user = User::with(['smeProfile', 'investorProfile'])->findOrFail($id);
         return $this->success($user);
     }
 
-    public function store(Request $request) {
+    public function store(Request $request)
+    {
         $validated = $request->validate([
             'full_name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
@@ -168,16 +190,17 @@ class UserController extends Controller
         return $this->success($user->load(['smeProfile', 'investorProfile']), 'User created with profile successfully', 201);
     }
 
-    public function updateStatus(Request $request, $id) {
+    public function updateStatus(Request $request, $id)
+    {
         $user = User::findOrFail($id);
-        
+
         $request->validate([
             'action' => 'required|in:approve,reject'
         ]);
 
         $status = $request->action === 'approve' ? 'ACTIVE' : 'REJECTED';
         $user->update(['status' => $status]);
-        
+
         \App\Models\AuditLog::create([
             'user_id' => auth('api')->id(),
             'action' => 'UPDATE_STATUS',
@@ -186,13 +209,14 @@ class UserController extends Controller
             'details' => json_encode(['old_status' => 'PENDING', 'new_status' => $status]),
             'ip_address' => $request->ip()
         ]);
-        
+
         return $this->success($user, 'Status updated successfully');
     }
 
-    public function updateRole(Request $request, $id) {
+    public function updateRole(Request $request, $id)
+    {
         $user = User::findOrFail($id);
-        
+
         $request->validate([
             'role' => 'required|in:SME,INVESTOR,ADMIN'
         ]);
@@ -201,9 +225,10 @@ class UserController extends Controller
         return $this->success($user, 'Role updated successfully');
     }
 
-    public function resetPassword(Request $request, $id) {
+    public function resetPassword(Request $request, $id)
+    {
         $user = User::findOrFail($id);
-        
+
         $request->validate([
             'password' => 'required|string|min:8'
         ]);
@@ -224,7 +249,8 @@ class UserController extends Controller
         return $this->success(null, 'User password updated successfully');
     }
 
-    public function destroy($id) {
+    public function destroy($id)
+    {
         $user = User::findOrFail($id);
         $user->delete();
         return $this->success(null, 'User deleted successfully');

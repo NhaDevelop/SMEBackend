@@ -298,9 +298,10 @@ class ReportsController extends Controller
         $smeQuery = \App\Models\SmeProfile::with(['user', 'assessments.template', 'assessments.responses']);
 
         if ($id) {
-            $smeQuery->where(function ($q) use ($id) {
-                $q->where('id', $id)->orWhere('user_id', $id);
-            });
+            // The admin frontend always passes the sme_profile.id.
+            // Using OR (id=X OR user_id=X) can accidentally match two DIFFERENT profiles.
+            // Strict id lookup is correct.
+            $smeQuery->where('id', $id);
         }
 
         if ($programId) {
@@ -418,23 +419,53 @@ class ReportsController extends Controller
                     $qTitle = $q['text'] ?? $q['title'] ?? 'Unknown Question';
                     $answer = 'No Answer';
                     if ($resp && !is_null($resp->answer_value)) {
-                        $decoded = is_string($resp->answer_value)
-                            ? json_decode($resp->answer_value, true)
-                            : $resp->answer_value;
+                        $raw = $resp->answer_value;
+
+                        // answer_value is cast to array in the model — but it can also be a JSON string
+                        if (is_string($raw)) {
+                            $decoded = json_decode($raw, true);
+                            // If json_decode fails or returns non-array scalar, keep as-is
+                            if (json_last_error() !== JSON_ERROR_NONE) {
+                                $decoded = $raw;
+                            }
+                        } else {
+                            $decoded = $raw;
+                        }
 
                         if (is_bool($decoded)) {
                             $answer = $decoded ? 'Yes' : 'No';
-                        } else if (is_array($decoded)) {
-                            $answer = implode(', ', $decoded);
-                        } else {
-                            $answer = $decoded;
-                            // Handle cases where numeric 1/0 is used for Yes/No
-                            if ($qType === 'Yes/No') {
-                                if ($answer == '1' || $answer === 'true')
-                                    $answer = 'Yes';
-                                if ($answer == '0' || $answer === 'false')
-                                    $answer = 'No';
+                        } elseif (is_array($decoded)) {
+                            // Array can be:
+                            //   - ["Option A", "Option B"]            → flat labels
+                            //   - [{"label":"A","points":5}, ...]     → objects from frontend
+                            //   - {"label":"A","points":5}            → single object (keyed)
+                            if (isset($decoded['label'])) {
+                                // Single option object
+                                $answer = $decoded['label'];
+                            } else {
+                                // Array of items — extract 'label' key if present, else cast to string
+                                $labels = array_map(function ($item) {
+                                    if (is_array($item)) {
+                                        return $item['label'] ?? $item['value'] ?? json_encode($item);
+                                    }
+                                    return (string) $item;
+                                }, $decoded);
+                                $answer = implode(', ', $labels);
                             }
+                        } elseif (is_numeric($decoded)) {
+                            if ($qType === 'Yes/No') {
+                                $answer = ((int) $decoded === 1 || $decoded === 'true') ? 'Yes' : 'No';
+                            } else {
+                                $answer = (string) $decoded;
+                            }
+                        } elseif (is_string($decoded)) {
+                            if ($qType === 'Yes/No') {
+                                $answer = in_array(strtolower($decoded), ['1', 'true', 'yes']) ? 'Yes' : 'No';
+                            } else {
+                                $answer = $decoded ?: 'No Answer';
+                            }
+                        } else {
+                            $answer = (string) $decoded;
                         }
                     }
 
@@ -447,7 +478,7 @@ class ReportsController extends Controller
 
                     fputcsv($file, [
                         $sme->id,
-                        $sme->user->full_name ?? 'N/A',
+                        $sme->user?->full_name ?? 'N/A',
                         $companyName,
                         $regNo,
                         $industry,
@@ -546,10 +577,9 @@ class ReportsController extends Controller
 
         $user = auth('api')->user() ?? ($token ? $user : null);
 
-        // Robust lookup: search by SME Profile ID or User ID (handles frontend mapping differences)
-        $sme = SmeProfile::with(['user', 'assessments'])->where(function ($q) use ($smeId) {
-            $q->where('id', $smeId)->orWhere('user_id', $smeId);
-        })->firstOrFail();
+        // Lookup by id only — the frontend always passes sme_profile.id.
+        // Using OR (id=X OR user_id=X) risks matching two different profiles.
+        $sme = SmeProfile::with(['user', 'assessments'])->where('id', $smeId)->firstOrFail();
         
         $data = $this->assessmentService->generateSmeReportData($sme, $programId);
         $program = $programId ? Program::with('template')->find($programId) : null;
