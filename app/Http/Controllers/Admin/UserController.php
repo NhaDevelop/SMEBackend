@@ -256,4 +256,36 @@ class UserController extends Controller
         return $this->success(null, 'User deleted successfully');
     }
 
+    public function downloadRegistrationDocument($id)
+    {
+        $user = User::with(['smeProfile', 'investorProfile'])->findOrFail($id);
+        
+        $document = null;
+        if ($user->role === 'SME' && $user->smeProfile) {
+            $document = $user->smeProfile->registration_document;
+        } elseif ($user->role === 'INVESTOR' && $user->investorProfile) {
+            $document = $user->investorProfile->registration_document;
+        }
+
+        if (!$document) {
+            return $this->error('No registration document found for this user', 404);
+        }
+
+        $path = storage_path('app/private/' . $document);
+        
+        if (!file_exists($path)) {
+            $path = storage_path('app/' . $document);
+        }
+
+        if (!file_exists($path)) {
+            $legacyPath = storage_path('app/public/' . $document);
+            if (file_exists($legacyPath)) {
+                $path = $legacyPath;
+            } else {
+                return $this->error('Registration document file not found on disk', 404);
+            }
+        }
+
+        return response()->file($path);
+    }
 }

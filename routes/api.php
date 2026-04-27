@@ -33,6 +33,7 @@ Route::group(['prefix' => 'admin', 'middleware' => ['auth:api', 'role:ADMIN']], 
     Route::post('users', [UserController::class, 'store']);
     Route::get('audit-logs', [AuditLogController::class, 'index']);
     Route::get('users/{id}', [UserController::class, 'show']);
+    Route::get('users/{id}/document', [UserController::class, 'downloadRegistrationDocument']);
     Route::patch('users/{id}/status', [UserController::class, 'updateStatus']);
     Route::patch('users/{id}/role', [UserController::class, 'updateRole']);
     Route::post('users/{id}/reset-password', [UserController::class, 'resetPassword']);

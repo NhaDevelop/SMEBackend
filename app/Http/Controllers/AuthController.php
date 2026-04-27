@@ -66,7 +66,7 @@ class AuthController extends Controller
 
         $docPath = null;
         if ($request->hasFile('registration_document')) {
-            $docPath = $request->file('registration_document')->store('registration_documents', 'public');
+            $docPath = $request->file('registration_document')->store('registration_documents');
         }
 
         if ($user->role === 'SME') {
