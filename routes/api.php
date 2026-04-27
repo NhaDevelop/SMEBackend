@@ -135,6 +135,7 @@ Route::middleware('auth:api')->group(function () {
     // SME Goal Tracking
     Route::get('sme/goals', [App\Http\Controllers\GoalController::class, 'index']);
     Route::get('sme/goals/{id}', [App\Http\Controllers\GoalController::class, 'show']);
+    Route::get('sme/goals/{id}/proof', [App\Http\Controllers\GoalController::class, 'downloadProof']);
     Route::post('sme/goals', [App\Http\Controllers\GoalController::class, 'store']);
     Route::patch('sme/goals/{id}', [App\Http\Controllers\GoalController::class, 'update']);
     Route::patch('sme/goals/{id}/verify', [App\Http\Controllers\GoalController::class, 'verifyGoal']);

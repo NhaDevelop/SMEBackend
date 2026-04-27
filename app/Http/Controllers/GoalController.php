@@ -286,12 +286,13 @@ class GoalController extends Controller
             'due_date' => 'nullable|date',
             'pillar_targets' => 'nullable|array',
             'proof_note' => 'nullable|string',
-            'proof_document' => 'nullable', // Could be file or string
+            'proof_document' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120', // Secure file validation (max 5MB)
         ]);
 
         if ($request->hasFile('proof_document')) {
             $file = $request->file('proof_document');
-            $path = $file->store('proofs', 'public');
+            // Store in the private 'local' disk instead of 'public' for security
+            $path = $file->store('proofs');
             $validated['proof_document'] = $path;
         }
 
@@ -402,5 +403,47 @@ class GoalController extends Controller
         $goal = $query->findOrFail($id);
         $goal->delete();
         return $this->success(null, 'Goal deleted successfully');
+    }
+
+    /**
+     * Securely download the proof document.
+     */
+    public function downloadProof($id)
+    {
+        $user = auth()->user();
+        $query = Goal::query();
+
+        // Enforce access control
+        if ($user->role === 'SME') {
+            if (!$user->smeProfile) {
+                return $this->error('SME profile not found', 404);
+            }
+            $query->where('sme_id', $user->smeProfile->id);
+        }
+
+        $goal = $query->findOrFail($id);
+
+        if (!$goal->proof_document) {
+            return $this->error('No proof document exists for this goal', 404);
+        }
+
+        $path = storage_path('app/private/' . $goal->proof_document);
+        
+        // Fallback for older Laravel versions or if stored in 'app/'
+        if (!file_exists($path)) {
+            $path = storage_path('app/' . $goal->proof_document);
+        }
+
+        if (!file_exists($path)) {
+            // Also check public if there are legacy files still there
+            $legacyPath = storage_path('app/public/' . $goal->proof_document);
+            if (file_exists($legacyPath)) {
+                $path = $legacyPath;
+            } else {
+                return $this->error('Proof document file not found on disk', 404);
+            }
+        }
+
+        return response()->file($path);
     }
 }
