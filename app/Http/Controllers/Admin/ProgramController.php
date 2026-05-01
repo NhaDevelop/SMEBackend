@@ -100,7 +100,6 @@ class ProgramController extends Controller
             ->where('id', $idOrSlug)
             ->orWhere('slug', $idOrSlug)
             ->firstOrFail();
-
         return $this->success($this->formatProgram($program));
     }
 

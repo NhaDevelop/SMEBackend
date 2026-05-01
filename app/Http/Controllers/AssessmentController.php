@@ -33,7 +33,7 @@ class AssessmentController extends Controller
     }
 
     public function start(Request $request)
-    {
+    { 
         $validated = $request->validate([
             'template_id' => 'required|exists:templates,id',
             'program_id' => 'nullable|exists:programs,id'

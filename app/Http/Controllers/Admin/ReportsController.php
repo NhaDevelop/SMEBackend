@@ -16,6 +16,11 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Services\AssessmentService;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
 
 class ReportsController extends Controller
 {
@@ -217,8 +222,22 @@ class ReportsController extends Controller
                 'needs_improvement' => $assessments->where('total_score', '<', 40)->count(),
             ];
 
-            $byProgram = Program::with(['template'])->get()->map(function ($program) {
-                $smeIds = ProgramEnrollment::where('program_id', $program->id)->pluck('sme_id');
+            // ✅ FIX: Pre-load all enrollments grouped by program_id BEFORE the map loop.
+            // Without this, every program iteration fires its own ProgramEnrollment query.
+            $allEnrollmentsByProgram = ProgramEnrollment::whereNotNull('sme_id')
+                ->pluck('sme_id', 'program_id')
+                ->groupBy(function ($smeId, $programId) {
+                    return $programId;
+                });
+
+            // Reload as a full grouped collection (pluck only gives one value per key)
+            $enrollmentsByProgram = ProgramEnrollment::whereNotNull('sme_id')
+                ->get(['program_id', 'sme_id'])
+                ->groupBy('program_id');
+
+            $byProgram = Program::with(['template'])->get()->map(function ($program) use ($enrollmentsByProgram) {
+                // ✅ Use pre-loaded enrollments — no extra DB query per program
+                $smeIds = ($enrollmentsByProgram->get($program->id) ?? collect())->pluck('sme_id');
                 $scores = Assessment::whereIn('sme_id', $smeIds)
                     ->where('template_id', $program->template_id)
                     ->where('status', 'Completed')
@@ -317,18 +336,18 @@ class ReportsController extends Controller
             return response()->json(['error' => 'No completed assessments found for this filter.'], 404);
         }
 
-        $filename = "sme_assessment_export_" . date('Y_m_d_His') . ".csv";
+        $filename = "sme_assessment_export_" . date('Y_m_d_His') . ".xlsx";
         if ($id && $smes->count() === 1) {
             $compName = Str::slug($smes->first()->company_name ?? 'sme_report');
-            $filename = "{$compName}_assessment.csv";
+            $filename = "{$compName}_assessment.xlsx";
         } else if ($programId) {
             $program = \App\Models\Program::find($programId);
             $pName = Str::slug($program->name ?? 'program');
-            $filename = "{$pName}_raw_scores.csv";
+            $filename = "{$pName}_raw_scores.xlsx";
         }
 
         $headers = [
-            "Content-type" => "text/csv",
+            "Content-type" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "Content-Disposition" => "attachment; filename=$filename",
             "Pragma" => "no-cache",
             "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
@@ -337,178 +356,285 @@ class ReportsController extends Controller
 
         $pillars = \Illuminate\Support\Facades\Cache::remember('pillars_pluck', 3600, fn() => \App\Models\Pillar::pluck('name', 'id'));
 
-        $callback = function () use ($smes, $programId, $pillars) {
-            $file = fopen('php://output', 'w');
+        // ✅ FIX: Pre-load all enrollments keyed by sme_id BEFORE the loop.
+        // This replaces 2,000 individual queries with a SINGLE query.
+        $allEnrollments = \App\Models\ProgramEnrollment::with('program')
+            ->whereIn('sme_id', $smes->pluck('id'))
+            ->get()
+            ->groupBy('sme_id');
 
-            // CSV Header Row (UPPERCASE for clarity)
-            fputcsv($file, [
-                'SME_ID',
-                'ACCOUNT_OWNER',
-                'COMPANY_NAME',
-                'REGISTRATION_NUMBER',
-                'INDUSTRY',
-                'PROGRAM_NAME',
-                'ASSESSMENT_TEMPLATE',
-                'ASSESSMENT_DATE',
-                'RISK_LEVEL',
-                'TOTAL_SCORE',
-                'PILLAR',
-                'QUESTION_TITLE',
-                'GIVEN_ANSWER',
-                'SCORE_AWARDED',
-                'MAX_SCORE'
-            ], ',', '"', "\0");
+        // ✅ FIX: Load program once outside the loop if programId is set.
+        $programForExport = $programId ? \App\Models\Program::find($programId) : null;
 
-            $hasData = false;
+        $callback = function () use (
+            $smes, $programId, $pillars, $allEnrollments, $programForExport
+        ) {
+            // ── Colour palette ────────────────────────────────────────────────
+            $C_DARK   = '05624E';
+            $C_MID    = '0A8C6E';
+            $C_LIGHT  = 'E8F5F1';
+            $C_WHITE  = 'FFFFFF';
+            $C_GREY   = 'F8FAFC';
+            $C_BORDER = 'CBD5E1';
+            $C_TEXT   = '0F172A';
+            $C_MUTED  = '64748B';
+
+            $hdrStyle = fn(string $bg) => [
+                'font'      => ['name' => 'Arial', 'size' => 10, 'bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill'      => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $bg]],
+                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER,
+                                'vertical'   => Alignment::VERTICAL_CENTER, 'wrapText' => true],
+                'borders'   => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $C_BORDER]]],
+            ];
+
+            $cellStyle = fn(string $bg, string $color = '0F172A', bool $bold = false, string $halign = Alignment::HORIZONTAL_LEFT) => [
+                'font'      => ['name' => 'Arial', 'size' => 10, 'bold' => $bold, 'color' => ['rgb' => $color]],
+                'fill'      => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $bg]],
+                'alignment' => ['horizontal' => $halign, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
+                'borders'   => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $C_BORDER]]],
+            ];
+
+            $pillarPct   = fn(float $a, float $m): float => $m > 0 ? round($a / $m * 100, 1) : 0;
+            $pillarColor = fn(float $p): string => $p >= 70 ? '10B981' : ($p >= 45 ? 'F59E0B' : 'EF4444');
+            $scoreColor  = fn(float $a, float $m): string => $a === $m ? '10B981' : ($a == 0 ? 'EF4444' : 'F59E0B');
+
+            $spreadsheet = new Spreadsheet();
+            $spreadsheet->getProperties()->setTitle('SME Assessment Report')->setCreator('IRIP Platform');
+
+            $hasData    = false;
+            $sheetIndex = 0;
+
             foreach ($smes as $sme) {
-                // If programId is active, find the assessment for that program. Else, just use latest completed.
-                $assessment = null;
+                // ── Resolve assessment ────────────────────────────────────────
+                $assessment        = null;
                 $activeProgramName = 'N/A';
 
                 if ($programId) {
-                    $program = \App\Models\Program::find($programId);
-                    if ($program) {
-                        $activeProgramName = $program->name;
-                        $assessment = $sme->assessments->where('template_id', $program->template_id)
-                            ->where('status', 'Completed')
-                            ->sortByDesc('completed_at')
-                            ->first();
+                    if ($programForExport) {
+                        $activeProgramName = $programForExport->name;
+                        $assessment = $sme->assessments->where('template_id', $programForExport->template_id)
+                            ->where('status', 'Completed')->sortByDesc('completed_at')->first();
                     }
                 } else {
                     $assessment = $sme->assessments->where('status', 'Completed')->sortByDesc('completed_at')->first();
-                    // Attempt to find associated program name based on the template ID
                     if ($assessment) {
-                        $enrollment = \App\Models\ProgramEnrollment::with('program')
-                            ->where('sme_id', $sme->id)
-                            ->get()
-                            ->firstWhere(function ($e) use ($assessment) {
-                                return $e->program && $e->program->template_id === $assessment->template_id;
-                            });
-                        if ($enrollment && $enrollment->program) {
-                            $activeProgramName = $enrollment->program->name;
-                        }
+                        $smeEnrollments = $allEnrollments->get($sme->id, collect());
+                        $enrollment = $smeEnrollments->first(fn($e) => $e->program && $e->program->template_id === $assessment->template_id);
+                        if ($enrollment?->program) $activeProgramName = $enrollment->program->name;
                     }
                 }
 
-                if (!$assessment)
-                    continue;
+                if (!$assessment) continue;
 
                 $snapshot = $assessment->questions_snapshot ?? [];
-                if (!is_array($snapshot)) {
-                    $snapshot = json_decode($snapshot, true) ?? [];
-                }
+                if (!is_array($snapshot)) $snapshot = json_decode($snapshot, true) ?? [];
 
-                $companyName = $sme->company_name ?? 'N/A';
-                $regNo = $sme->registration_number ?? 'N/A';
-                $industry = $sme->industry ?? 'N/A';
+                $t           = $this->assessmentService->getThresholds($assessment->program_id);
+                $risk        = $this->assessmentService->getThresholdLabel($assessment->total_score, $t);
+                $assDate     = $assessment->completed_at?->format('Y-m-d H:i') ?? 'N/A';
+                $totalScore  = (float)($assessment->total_score ?? 0);
                 $templateName = $assessment->template->name ?? 'N/A';
-                $assDate = $assessment->completed_at ? $assessment->completed_at->format('Y-m-d H:i') : 'N/A';
-                $risk = $assessment->risk_level ?? 'Not Assessed';
-                $totalScore = $assessment->total_score ?? '0';
+                $companyName  = $sme->company_name ?? 'N/A';
+                $ownerName    = $sme->user?->full_name ?? 'N/A';
+                $hasData      = true;
 
                 $responses = collect($assessment->responses)->keyBy('question_id');
 
-                foreach ($snapshot as $q) {
-                    $qId = $q['id'] ?? null;
-                    $resp = $qId ? $responses->get($qId) : null;
-
-                    $pId = $q['pillar_id'] ?? null;
-                    $pillarName = $pId && $pillars->has($pId) ? $pillars->get($pId) : 'Unknown';
-
-                    $qType = $q['type'] ?? '';
-                    $qTitle = $q['text'] ?? $q['title'] ?? 'Unknown Question';
-                    $answer = 'No Answer';
-                    if ($resp && !is_null($resp->answer_value)) {
-                        $raw = $resp->answer_value;
-
-                        // answer_value is cast to array in the model — but it can also be a JSON string
-                        if (is_string($raw)) {
-                            $decoded = json_decode($raw, true);
-                            // If json_decode fails or returns non-array scalar, keep as-is
-                            if (json_last_error() !== JSON_ERROR_NONE) {
-                                $decoded = $raw;
-                            }
-                        } else {
-                            $decoded = $raw;
-                        }
-
-                        if (is_bool($decoded)) {
-                            $answer = $decoded ? 'Yes' : 'No';
-                        } elseif (is_array($decoded)) {
-                            // Array can be:
-                            //   - ["Option A", "Option B"]            → flat labels
-                            //   - [{"label":"A","points":5}, ...]     → objects from frontend
-                            //   - {"label":"A","points":5}            → single object (keyed)
-                            if (isset($decoded['label'])) {
-                                // Single option object
-                                $answer = $decoded['label'];
-                            } else {
-                                // Array of items — extract 'label' key if present, else cast to string
-                                $labels = array_map(function ($item) {
-                                    if (is_array($item)) {
-                                        return $item['label'] ?? $item['value'] ?? json_encode($item);
-                                    }
-                                    return (string) $item;
-                                }, $decoded);
-                                $answer = implode(', ', $labels);
-                            }
-                        } elseif (is_numeric($decoded)) {
-                            if ($qType === 'Yes/No') {
-                                $answer = ((int) $decoded === 1 || $decoded === 'true') ? 'Yes' : 'No';
-                            } else {
-                                $answer = (string) $decoded;
-                            }
-                        } elseif (is_string($decoded)) {
-                            if ($qType === 'Yes/No') {
-                                $answer = in_array(strtolower($decoded), ['1', 'true', 'yes']) ? 'Yes' : 'No';
-                            } else {
-                                $answer = $decoded ?: 'No Answer';
-                            }
-                        } else {
-                            $answer = (string) $decoded;
-                        }
+                $resolveAnswer = function ($resp, string $qType): string {
+                    if (!$resp || is_null($resp->answer_value)) return 'No Answer';
+                    $raw     = $resp->answer_value;
+                    $decoded = is_string($raw) ? (json_decode($raw, true) ?? $raw) : $raw;
+                    if (is_bool($decoded)) return $decoded ? 'Yes' : 'No';
+                    if (is_array($decoded)) {
+                        if (isset($decoded['label'])) return (string)$decoded['label'];
+                        $labels = array_map(fn($item) => is_array($item)
+                            ? (string)($item['label'] ?? $item['value'] ?? json_encode($item))
+                            : (string)$item, $decoded);
+                        return implode('; ', $labels);
                     }
+                    if (is_numeric($decoded)) return $qType === 'Yes/No' ? ((int)$decoded === 1 ? 'Yes' : 'No') : (string)$decoded;
+                    if (is_string($decoded)) return $qType === 'Yes/No'
+                        ? (in_array(strtolower($decoded), ['1','true','yes']) ? 'Yes' : 'No')
+                        : ($decoded ?: 'No Answer');
+                    return (string)$decoded;
+                };
 
-                    $awarded = $resp ? ($resp->score_awarded ?? '0') : '0';
-                    $max = $q['weight'] ?? $q['max_score'] ?? '0';
-
-                    $hasData = true;
-                    $t = $this->assessmentService->getThresholds($assessment->program_id);
-                    $risk = $this->assessmentService->getThresholdLabel($totalScore, $t);
-
-                    fputcsv($file, [
-                        $sme->id,
-                        $sme->user?->full_name ?? 'N/A',
-                        $companyName,
-                        $regNo,
-                        $industry,
-                        $activeProgramName,
-                        $templateName,
-                        $assDate,
-                        $risk,
-                        $totalScore,
-                        $pillarName,
-                        $qTitle,
-                        $answer,
-                        $awarded,
-                        $max
-                    ], ',', '"', "\0");
+                // ── Build pillar aggregates ───────────────────────────────────
+                $pillarAgg = [];
+                foreach ($snapshot as $q) {
+                    $pId   = $q['pillar_id'] ?? null;
+                    $pName = ($pId && $pillars->has($pId)) ? $pillars->get($pId) : 'Unknown';
+                    if (!isset($pillarAgg[$pName])) $pillarAgg[$pName] = ['awarded' => 0.0, 'max' => 0.0, 'questions' => []];
+                    $qId     = $q['id'] ?? null;
+                    $resp    = $qId ? $responses->get($qId) : null;
+                    $awarded = (float)($resp->score_awarded ?? 0);
+                    $max     = (float)($q['weight'] ?? $q['max_score'] ?? 0);
+                    $pillarAgg[$pName]['awarded']     += $awarded;
+                    $pillarAgg[$pName]['max']         += $max;
+                    $pillarAgg[$pName]['questions'][] = [
+                        'title'   => $q['text'] ?? $q['title'] ?? 'Unknown Question',
+                        'answer'  => $resolveAnswer($resp, $q['type'] ?? ''),
+                        'awarded' => $awarded,
+                        'max'     => $max,
+                    ];
                 }
+
+                $safeTitle = mb_substr(preg_replace('/[\/\\\?\*\[\]:]/', '', $companyName), 0, 26);
+
+                // ════════════════════════════════════════════════════════════════
+                //  SHEET 1 — SUMMARY
+                // ════════════════════════════════════════════════════════════════
+                $ws1 = $sheetIndex === 0 ? $spreadsheet->getActiveSheet() : $spreadsheet->createSheet();
+                $ws1->setTitle($safeTitle . ' - Sum');
+
+                $ws1->mergeCells('A1:G1');
+                $ws1->setCellValue('A1', 'SME Assessment Report');
+                $ws1->getStyle('A1')->applyFromArray([
+                    'font'      => ['name' => 'Arial', 'size' => 14, 'bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                    'fill'      => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $C_DARK]],
+                    'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT, 'vertical' => Alignment::VERTICAL_CENTER, 'indent' => 1],
+                ]);
+                $ws1->getRowDimension(1)->setRowHeight(36);
+
+                $infoRows = [
+                    ['Company',     $companyName],   ['Owner',    $ownerName],
+                    ['Reg No',      $sme->registration_number ?? 'N/A'],
+                    ['Industry',    $sme->industry ?? 'N/A'],
+                    ['Program',     $activeProgramName], ['Template', $templateName],
+                    ['Date',        $assDate],        ['Risk',     $risk],
+                    ['Total Score', $totalScore],
+                ];
+                $r = 3;
+                foreach ($infoRows as [$lbl, $val]) {
+                    $ws1->setCellValue("A{$r}", $lbl);
+                    $ws1->setCellValue("B{$r}", $val);
+                    $isBold  = $lbl === 'Total Score';
+                    $vColor  = $lbl === 'Total Score' ? $C_DARK : $C_TEXT;
+                    $ws1->getStyle("A{$r}")->applyFromArray($cellStyle($C_GREY, $C_MUTED, true));
+                    $ws1->getStyle("B{$r}")->applyFromArray($cellStyle($C_WHITE, $vColor, $isBold));
+                    $ws1->getRowDimension($r)->setRowHeight(22);
+                    $r++;
+                }
+
+                $r++;
+                $ws1->mergeCells("A{$r}:F{$r}");
+                $ws1->setCellValue("A{$r}", 'Pillar Score Breakdown');
+                $ws1->getStyle("A{$r}")->applyFromArray($hdrStyle($C_MID));
+                $ws1->getRowDimension($r)->setRowHeight(22);
+                $r++;
+
+                foreach (['Pillar', 'Questions', 'Awarded', 'Max', '% Achieved', 'Weight'] as $ci => $h) {
+                    $col = chr(65 + $ci);
+                    $ws1->setCellValue("{$col}{$r}", $h);
+                    $ws1->getStyle("{$col}{$r}")->applyFromArray($hdrStyle($C_DARK));
+                }
+                $ws1->getRowDimension($r)->setRowHeight(22);
+                $r++;
+
+                $alt = false;
+                foreach ($pillarAgg as $pName => $pd) {
+                    $pct    = $pillarPct($pd['awarded'], $pd['max']);
+                    $pColor = $pillarColor($pct);
+                    $rowBg  = $alt ? $C_GREY : 'F0FDF4';
+                    $alt    = !$alt;
+                    $fwW    = array_sum(array_column($pd['questions'], 'max'));
+                    $vals   = [$pName, count($pd['questions']), round($pd['awarded'], 2), round($pd['max'], 2), $pct . '%', $fwW];
+                    foreach ($vals as $ci => $v) {
+                        $col  = chr(65 + $ci);
+                        $isP  = $ci === 4;
+                        $ws1->setCellValue("{$col}{$r}", $v);
+                        $ws1->getStyle("{$col}{$r}")->applyFromArray($cellStyle(
+                            $rowBg, $isP ? $pColor : $C_TEXT, $isP,
+                            $ci === 0 ? Alignment::HORIZONTAL_LEFT : Alignment::HORIZONTAL_CENTER
+                        ));
+                    }
+                    $ws1->getRowDimension($r)->setRowHeight(20);
+                    $r++;
+                }
+
+                foreach (['A' => 22, 'B' => 36, 'C' => 14, 'D' => 12, 'E' => 14, 'F' => 14, 'G' => 12] as $col => $w)
+                    $ws1->getColumnDimension($col)->setWidth($w);
+                $ws1->freezePane('A4');
+
+                // ════════════════════════════════════════════════════════════════
+                //  SHEET 2 — QUESTION DETAIL
+                // ════════════════════════════════════════════════════════════════
+                $ws2 = $spreadsheet->createSheet();
+                $ws2->setTitle($safeTitle . ' - Qs');
+
+                $ws2->mergeCells('A1:F1');
+                $ws2->setCellValue('A1', "Questions — {$companyName} ({$assDate})");
+                $ws2->getStyle('A1')->applyFromArray([
+                    'font'      => ['name' => 'Arial', 'size' => 13, 'bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                    'fill'      => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $C_DARK]],
+                    'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT, 'vertical' => Alignment::VERTICAL_CENTER, 'indent' => 1],
+                ]);
+                $ws2->getRowDimension(1)->setRowHeight(30);
+
+                foreach (['Pillar', 'Question', 'Answer', 'Awarded', 'Max', 'Weight'] as $ci => $h) {
+                    $col = chr(65 + $ci);
+                    $ws2->setCellValue("{$col}2", $h);
+                    $ws2->getStyle("{$col}2")->applyFromArray($hdrStyle($C_DARK));
+                }
+                $ws2->getRowDimension(2)->setRowHeight(22);
+
+                $qRow = 3;
+                foreach ($pillarAgg as $pName => $pd) {
+                    $pct    = $pillarPct($pd['awarded'], $pd['max']);
+                    $ws2->mergeCells("A{$qRow}:F{$qRow}");
+                    $ws2->setCellValue("A{$qRow}", "  {$pName}   |   {$pd['awarded']} / {$pd['max']}   ({$pct}%)");
+                    $ws2->getStyle("A{$qRow}")->applyFromArray([
+                        'font'      => ['name' => 'Arial', 'size' => 10, 'bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                        'fill'      => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => $C_MID]],
+                        'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT, 'vertical' => Alignment::VERTICAL_CENTER, 'indent' => 1],
+                        'borders'   => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $C_BORDER]]],
+                    ]);
+                    $ws2->getRowDimension($qRow)->setRowHeight(22);
+                    $qRow++;
+
+                    foreach ($pd['questions'] as $i => $q) {
+                        $rowBg  = ($i % 2 === 0) ? $C_LIGHT : $C_WHITE;
+                        $sColor = $scoreColor($q['awarded'], $q['max']);
+                        $vals   = ['', $q['title'], $q['answer'], $q['awarded'], $q['max'], $q['max']];
+                        foreach ($vals as $ci => $v) {
+                            $col  = chr(65 + $ci);
+                            $isS  = $ci === 3;
+                            $isN  = $ci >= 3;
+                            $ws2->setCellValue("{$col}{$qRow}", $v);
+                            $ws2->getStyle("{$col}{$qRow}")->applyFromArray($cellStyle(
+                                $rowBg, $isS ? $sColor : $C_TEXT, $isS,
+                                $isN ? Alignment::HORIZONTAL_CENTER : Alignment::HORIZONTAL_LEFT
+                            ));
+                        }
+                        $ws2->getRowDimension($qRow)->setRowHeight(38);
+                        $qRow++;
+                    }
+                    $qRow++;
+                }
+
+                foreach (['A' => 2, 'B' => 52, 'C' => 34, 'D' => 14, 'E' => 12, 'F' => 14] as $col => $w)
+                    $ws2->getColumnDimension($col)->setWidth($w);
+                $ws2->freezePane('B3');
+
+                $sheetIndex += 2;
             }
+
             if (!$hasData) {
-                fputcsv($file, ['No assessments found for this filter combination.'], ',', '"', "\0");
+                $spreadsheet->getActiveSheet()->setCellValue('A1', 'No assessments found for this filter combination.');
             }
-            fclose($file);
+
+            $writer = new Xlsx($spreadsheet);
+            $writer->save('php://output');
         };
 
         // Log the export
         \App\Models\AuditLog::create([
-            'user_id' => $user->id ?? null,
-            'action' => 'EXPORTED_DATA',
+            'user_id'       => $user->id ?? null,
+            'action'        => 'EXPORTED_DATA',
             'target_entity' => 'SmeProfile',
-            'target_id' => $id ?? 0,
-            'details' => json_encode([
-                'report_type' => 'Raw Scores CSV Export',
+            'target_id'     => $id ?? 0,
+            'details'       => json_encode([
+                'report_type' => 'Raw Scores XLSX Export',
                 'program_id' => $programId,
                 'sme_id' => $id
             ]),

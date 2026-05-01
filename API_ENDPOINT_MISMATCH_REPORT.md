@@ -95,11 +95,11 @@ POST   /admin/notification-templates  ❌ NOT IMPLEMENTED
 PUT    /admin/notification-templates/{id} ❌ NOT IMPLEMENTED
 DELETE /admin/notification-templates/{id} ❌ NOT IMPLEMENTED
 
-# Reports - ❌ MISSING BACKEND
-GET    /api/reports/programs         ❌ NOT IMPLEMENTED
-GET    /api/reports/smes             ❌ NOT IMPLEMENTED
-GET    /api/reports/scores           ❌ NOT IMPLEMENTED
-GET    /api/reports/export           ❌ NOT IMPLEMENTED
+# Reports - ✅ Working (Implemented)
+GET    /admin/reports/programs         ✅ Working
+GET    /admin/reports/smes             ✅ Working
+GET    /admin/reports/scores           ✅ Working
+GET    /admin/reports/export           ✅ Working
 ```
 
 ### SME ROUTES (Protected)
@@ -261,15 +261,15 @@ GET /auth/profile               ✅ MATCHES
 
 ## ❌ CRITICAL MISMATCHES FOUND
 
-### 1. Reports Page (`/admin/reports.vue`)
+### 1. Reports Page (`/admin/reports.vue`) - ✅ FIXED
 **Frontend Calls:**
-- `GET /api/reports/programs` ❌ Backend Missing
-- `GET /api/reports/smes` ❌ Backend Missing  
-- `GET /api/reports/scores` ❌ Backend Missing
-- `GET /api/reports/export` ❌ Backend Missing
-- `GET /api/admin/sectors` (for filter dropdown) ✅ Working
+- `GET /admin/reports/programs` ✅ Working
+- `GET /admin/reports/smes` ✅ Working  
+- `GET /admin/reports/scores` ✅ Working
+- `GET /admin/reports/export` ✅ Working
+- `GET /admin/sectors` (for filter dropdown) ✅ Working
 
-**Status:** Reports page will not work - backend controllers missing entirely.
+**Status:** Reports page is fully functional. Backed by `ReportsController`.
 
 ### 2. Notifications Page (`/admin/notifications.vue`)
 **Frontend Calls:**
@@ -280,14 +280,14 @@ GET /auth/profile               ✅ MATCHES
 
 **Status:** Notification template management will not work.
 
-### 3. Investor Messages Page (`/investor/messages.vue`)
+### 3. Investor Messages Page (`/investor/messages.vue`) - ✅ FIXED
 **Frontend Calls:**
 - `GET /investor/programs` ✅ Working
 - `GET /messages` ✅ Working
 - `POST /messages` ✅ Working
-- `GET /admin/users` ❌ Issue: Investor accessing admin route
+- `GET /users/discovery` ✅ Working (Changed from `/admin/users`)
 
-**Status:** Investor trying to fetch `/admin/users` will get 403 Forbidden.
+**Status:** Investor can now successfully load users to message without 403 Forbidden.
 
 ---
 

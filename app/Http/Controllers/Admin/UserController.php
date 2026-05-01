@@ -4,9 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-
 use App\Models\User;
-
+use App\Models\SmeProfile;
+use App\Models\ProgramEnrollment;
+use App\Models\Program;
 use App\Services\AssessmentService;
 
 class UserController extends Controller
@@ -287,5 +288,28 @@ class UserController extends Controller
         }
 
         return response()->file($path);
+    }
+
+    /**
+     * GET /api/admin/smes/{id}/programs
+     * Returns the list of programs a specific SME is enrolled in.
+     * Used to populate the Program filter in the Generate Custom Report UI.
+     */
+    public function smePrograms($id)
+    {
+        $sme = SmeProfile::findOrFail($id);
+
+        $programs = ProgramEnrollment::where('sme_id', $sme->id)
+            ->whereNotNull('program_id')
+            ->with('program')
+            ->get()
+            ->filter(fn($e) => $e->program !== null)
+            ->map(fn($e) => [
+                'id'   => $e->program->id,
+                'name' => $e->program->name,
+            ])
+            ->values();
+
+        return $this->success($programs, 'SME programs retrieved successfully');
     }
 }

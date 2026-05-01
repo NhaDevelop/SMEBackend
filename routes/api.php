@@ -38,6 +38,7 @@ Route::group(['prefix' => 'admin', 'middleware' => ['auth:api', 'role:ADMIN']], 
     Route::patch('users/{id}/role', [UserController::class, 'updateRole']);
     Route::post('users/{id}/reset-password', [UserController::class, 'resetPassword']);
     Route::delete('users/{id}', [UserController::class, 'destroy']);
+    Route::get('smes/{id}/programs', [UserController::class, 'smePrograms']);
 
     // New API Resources and Endpoints
     Route::apiResource('sectors', \App\Http\Controllers\Admin\SectorController::class);
