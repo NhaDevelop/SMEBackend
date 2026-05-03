@@ -8,6 +8,10 @@ Route::get('sectors', [\App\Http\Controllers\Admin\SectorController::class, 'ind
 Route::get('programs', [\App\Http\Controllers\Admin\ProgramController::class, 'index']);
 Route::get('programs/{id}', [\App\Http\Controllers\Admin\ProgramController::class, 'show']);
 
+// Email Verification Route (must be named 'email.verify' for the signed URL)
+Route::get('auth/email/verify/{id}/{hash}', [\App\Http\Controllers\Auth\EmailVerificationController::class, 'verify'])
+    ->name('email.verify');
+
 Route::group(['prefix' => 'auth'], function () {
     // Fix #2: Throttle login/register — 10 attempts per minute per IP to prevent brute force
     Route::middleware('throttle:10,1')->group(function () {

@@ -7,6 +7,10 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\URL;
+use App\Jobs\SendTelegramRegistrationAlertJob;
+use App\Mail\EmailVerificationMail;
 
 class AuthController extends Controller
 {
@@ -33,6 +37,19 @@ class AuthController extends Controller
             }
         }
 
+        // If a REJECTED or abandoned PENDING_VERIFICATION account exists with this email,
+        // delete it so the user can re-register freely.
+        $existingRejected = User::where('email', $request->input('email'))
+            ->whereIn('status', ['REJECTED', 'PENDING_VERIFICATION'])
+            ->first();
+
+        if ($existingRejected) {
+            // Clean up related profiles before deleting the user
+            $existingRejected->smeProfile()->delete();
+            $existingRejected->investorProfile()->delete();
+            $existingRejected->delete();
+        }
+
         $validated = $request->validate([
             'full_name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
@@ -57,11 +74,11 @@ class AuthController extends Controller
 
         $user = User::create([
             'full_name' => $validated['full_name'],
-            'email' => $validated['email'],
-            'phone' => $validated['phone'] ?? null,
-            'password' => Hash::make($validated['password']),
-            'role' => $validated['role'],
-            'status' => 'PENDING',
+            'email'     => $validated['email'],
+            'phone'     => $validated['phone'] ?? null,
+            'password'  => Hash::make($validated['password']),
+            'role'      => $validated['role'],
+            'status'    => 'PENDING_VERIFICATION',
         ]);
 
         $docPath = null;
@@ -93,6 +110,28 @@ class AuthController extends Controller
                 'registration_document' => $docPath,
             ]);
         }
+
+        // Send Email Verification Link
+        try {
+            $verificationUrl = URL::temporarySignedRoute(
+                'email.verify',
+                now()->addHours(24),
+                ['id' => $user->id, 'hash' => sha1($user->email)]
+            );
+            Mail::to($user->email)->send(new EmailVerificationMail($user, $verificationUrl));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send verification email: ' . $e->getMessage());
+        }
+
+        // Send Telegram Alert (only pass serializable data, not file objects)
+        SendTelegramRegistrationAlertJob::dispatch([
+            'full_name'         => $validated['full_name'] ?? null,
+            'role'              => $validated['role'] ?? null,
+            'email'             => $validated['email'] ?? null,
+            'company_name'      => $validated['company_name'] ?? $validated['organization_name'] ?? null,
+            'organization_name' => $validated['organization_name'] ?? null,
+            'industry'          => $validated['industry'] ?? null,
+        ]);
 
         return $this->success(null, 'Registration successful, awaiting admin approval', 201);
     }

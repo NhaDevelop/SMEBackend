@@ -9,6 +9,9 @@ use App\Models\SmeProfile;
 use App\Models\ProgramEnrollment;
 use App\Models\Program;
 use App\Services\AssessmentService;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\UserApprovedMail;
+use App\Mail\UserRejectedMail;
 
 class UserController extends Controller
 {
@@ -18,25 +21,70 @@ class UserController extends Controller
     {
         $this->assessmentService = $assessmentService;
     }
-    public function fetchPendingUsers()
+    public function fetchPendingUsers(Request $request)
     {
-        // Updated to use server-side pagination instead of fetching everything at once
-        $paginator = User::where('status', 'PENDING')->with(['smeProfile', 'investorProfile'])->paginate(15);
+        $search = $request->query('search');
+        $role = $request->query('role');
+
+        // Only show users who have verified their email (PENDING = verified, awaiting admin)
+        // PENDING_VERIFICATION users are excluded until they click their email link
+        $query = User::where('status', 'PENDING')->with(['smeProfile', 'investorProfile']);
+
+        if ($role && strtolower($role) !== 'all') {
+            $query->where('role', strtoupper($role));
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('full_name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhereHas('smeProfile', function ($q2) use ($search) {
+                      $q2->where('company_name', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('investorProfile', function ($q2) use ($search) {
+                      $q2->where('organization_name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        $paginator = $query->paginate(15);
         $responseArray = $paginator->toArray();
         $responseArray['stats'] = [
-            'total' => User::count(),
-            'pending' => User::where('status', 'PENDING')->count(),
-            'smes' => User::where('role', 'SME')->count(),
+            'total'     => User::count(),
+            'pending'   => User::where('status', 'PENDING')->count(),
+            'smes'      => User::where('role', 'SME')->count(),
             'investors' => User::where('role', 'INVESTOR')->count(),
-            'admins' => User::where('role', 'ADMIN')->count(),
+            'admins'    => User::where('role', 'ADMIN')->count(),
         ];
         return $this->success($responseArray, 'Pending users retrieved successfully');
     }
 
-    public function getApprovedUsers()
+    public function getApprovedUsers(Request $request)
     {
+        $search = $request->query('search');
+        $role = $request->query('role');
+
+        $query = User::where('status', 'ACTIVE')->with(['smeProfile', 'investorProfile']);
+
+        if ($role && strtolower($role) !== 'all') {
+            $query->where('role', strtoupper($role));
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('full_name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhereHas('smeProfile', function ($q2) use ($search) {
+                      $q2->where('company_name', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('investorProfile', function ($q2) use ($search) {
+                      $q2->where('organization_name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
         // Updated to use server-side pagination instead of fetching everything at once
-        $paginator = User::where('status', 'ACTIVE')->with(['smeProfile', 'investorProfile'])->latest()->paginate(15);
+        $paginator = $query->latest()->paginate(15);
         $responseArray = $paginator->toArray();
         $responseArray['stats'] = [
             'total' => User::count(),
@@ -210,6 +258,20 @@ class UserController extends Controller
             'details' => json_encode(['old_status' => 'PENDING', 'new_status' => $status]),
             'ip_address' => $request->ip()
         ]);
+
+        if ($status === 'ACTIVE') {
+            try {
+                Mail::to($user->email)->send(new UserApprovedMail($user));
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send approval email to ' . $user->email . ': ' . $e->getMessage());
+            }
+        } elseif ($status === 'REJECTED') {
+            try {
+                Mail::to($user->email)->send(new UserRejectedMail($user));
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send rejection email to ' . $user->email . ': ' . $e->getMessage());
+            }
+        }
 
         return $this->success($user, 'Status updated successfully');
     }

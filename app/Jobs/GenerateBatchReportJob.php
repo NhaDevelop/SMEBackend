@@ -5,7 +5,6 @@ namespace App\Jobs;
 use App\Models\Program;
 use App\Models\ProgramEnrollment;
 use App\Models\SmeProfile;
-use App\Traits\AssessmentScoring;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -16,7 +15,7 @@ use Illuminate\Support\Facades\Log;
 
 class GenerateBatchReportJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, AssessmentScoring;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     // Automatically retry up to 3 times if the job fails
     public int $tries = 3;
