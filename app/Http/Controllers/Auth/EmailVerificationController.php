@@ -15,7 +15,7 @@ class EmailVerificationController extends Controller
      */
     public function verify(Request $request, $id, $hash)
     {
-        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+        $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
 
         // Validate the signed URL
         if (!URL::hasValidSignature($request)) {
