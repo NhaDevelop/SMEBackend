@@ -72,10 +72,7 @@ class InvestorController extends Controller
             'smeProfile.enrollments',
             'smeProfile.assessments' => function ($query) {
                 $query->where('status', 'Completed')->orderBy('completed_at', 'asc')->with([
-                    'program',
-                    // Eager-load responses & questions so calculatePillarScores()
-                    // does NOT fire extra DB queries per SME (fixes N+1)
-                    'responses.question',
+                    'program'
                 ]);
             }
         ])
@@ -249,10 +246,7 @@ class InvestorController extends Controller
             'smeProfile',
             'smeProfile.assessments' => function ($q) {
                 $q->where('status', 'Completed')->orderBy('completed_at', 'asc')->with([
-                    'program',
-                    // Eager-load responses & questions so calculatePillarScores()
-                    // does NOT fire extra DB queries per SME (fixes N+1)
-                    'responses.question',
+                    'program'
                 ]);
             }
         ])
@@ -320,8 +314,7 @@ class InvestorController extends Controller
         // --- 3. Compute Real Trend Data over Time ---
         $smeProfileIds = $smes->pluck('id')->filter()->values()->toArray();
         $trendQuery = \App\Models\Assessment::whereIn('sme_id', $smeProfileIds)
-            ->where('status', 'Completed')
-            ->orderBy('completed_at', 'asc');
+            ->where('status', 'Completed');
 
         // Apply optional date range filter from frontend
         $startDate = $request->input('start_date');
@@ -333,21 +326,24 @@ class InvestorController extends Controller
             $trendQuery->where('completed_at', '<=', $endDate . ' 23:59:59');
         }
 
-        $allAssessments = $trendQuery->get();
+        $historicalTrendQuery = $trendQuery->selectRaw('
+            DATE_FORMAT(completed_at, "%Y-%m") as month_raw,
+            AVG(total_score) as avg_score,
+            SUM(CASE WHEN total_score >= 80 THEN 1 ELSE 0 END) as ready_count
+        ')
+        ->groupBy('month_raw')
+        ->orderBy('month_raw', 'asc')
+        ->get();
 
-        $trendGroups = $allAssessments->groupBy(function ($assessment) {
-            return clone $assessment->completed_at->startOfMonth(); 
-        });
-
-        $historicalTrend = $trendGroups->map(function ($group, $month) {
-            $date = \Carbon\Carbon::parse($month);
+        $historicalTrend = $historicalTrendQuery->map(function ($row) {
+            $date = \Carbon\Carbon::createFromFormat('Y-m', $row->month_raw);
             return [
                 'month' => $date->format('M Y'),
                 'sort' => $date->timestamp,
-                'score' => round($group->avg('total_score'), 1),
-                'ready' => $group->where('total_score', '>=', 80)->count(),
+                'score' => round((float) $row->avg_score, 1),
+                'ready' => (int) $row->ready_count,
             ];
-        })->values()->sortBy('sort')->values()->toArray();
+        })->toArray();
 
         // Ensure there is some data if none exists
         if (empty($historicalTrend)) {
@@ -387,7 +383,7 @@ class InvestorController extends Controller
         return $this->success([
             'total_portfolio' => $portfolioCount,
             'average_readiness' => round($avgScore, 2),
-            'sector_distribution' => SmeProfile::whereIn('user_id', (clone $query)->pluck('id'))
+            'sector_distribution' => SmeProfile::whereIn('user_id', (clone $query)->select('id'))
                 ->selectRaw('industry, count(*) as count')
                 ->groupBy('industry')
                 ->get(),

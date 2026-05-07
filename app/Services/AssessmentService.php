@@ -73,6 +73,14 @@ class AssessmentService
      */
     public function calculatePillarScores(Assessment $assessment, array $thresholds): array
     {
+        // ── SHORTCUT: DB-Level Lazy Caching ──────────────────────────────────────
+        // If the pillar scores were already calculated and saved to the database,
+        // instantly return them to avoid loading 100,000+ answers into RAM.
+        // ────────────────────────────────────────────────────────────────────────
+        if (!empty($assessment->pillar_scores) && $assessment->status === 'Completed') {
+            return $assessment->pillar_scores;
+        }
+
         // Use Cache::remember for pillars since they rarely change
         $pillars = \Illuminate\Support\Facades\Cache::remember('pillars_keyed', 3600, function () {
             return Pillar::all()->keyBy('id');
@@ -119,6 +127,14 @@ class AssessmentService
                 'riskLevel'   => $this->getThresholdLabel($score, $thresholds),
                 'weight'      => (float)$p->weight,
             ];
+        }
+
+        // ── SHORTCUT: DB-Level Lazy Caching ──────────────────────────────────────
+        // Save the calculated scores directly to the DB so we never have to 
+        // calculate them again.
+        // ────────────────────────────────────────────────────────────────────────
+        if ($assessment->status === 'Completed') {
+            $assessment->update(['pillar_scores' => $result]);
         }
 
         return $result;

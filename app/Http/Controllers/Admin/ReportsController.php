@@ -291,27 +291,14 @@ class ReportsController extends Controller
         $id = $request->input('id'); // SME ID
         $programId = $request->input('programId');
 
-        $token = $request->input('token');
         $user = null;
 
-        if ($token) {
-            try {
-                /** @var \PHPOpenSourceSaver\JWTAuth\JWTGuard $guard */
-                $guard = \Illuminate\Support\Facades\Auth::guard('api');
-                /** @var \App\Models\User|null $user */
-                $user = $guard->setToken($token)->authenticate();
-                if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
-                    return response()->json(['error' => 'Unauthorized: Access restricted to Admins and Investors.'], 401);
-                }
-            } catch (\Exception $e) {
-                return response()->json(['error' => 'Invalid or expired token: ' . $e->getMessage()], 401);
-            }
-        } else if (auth('api')->check()) {
+        if (auth('api')->check()) {
             $user = auth('api')->user();
         }
 
-        if (!$user) {
-            return response()->json(['error' => 'Unauthorized export access'], 401);
+        if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
+            return response()->json(['error' => 'Unauthorized: Access restricted to Admins and Investors.'], 401);
         }
 
         $smeQuery = \App\Models\SmeProfile::with(['user', 'assessments.template', 'assessments.responses']);
@@ -674,8 +661,6 @@ class ReportsController extends Controller
      */
     public function readiness(Request $request)
     {
-        // Check for token in query param (for new-tab downloads) or normal auth
-        $token = $request->input('token');
         $smeId = $request->input('smeId');
         $programId = $request->input('programId'); // Optional: scope to a specific program
 
@@ -684,24 +669,15 @@ class ReportsController extends Controller
             return $this->portfolio($request);
         }
 
-        // If token provided via query, validate it — allow both ADMIN and INVESTOR
-        if ($token) {
-            try {
-                /** @var \PHPOpenSourceSaver\JWTAuth\JWTGuard $guard */
-                $guard = Auth::guard('api');
-                /** @var \App\Models\User $user */
-                $user = $guard->setToken($token)->authenticate();
-                if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
-                    return $this->error('Unauthorized', 401);
-                }
-            } catch (\Exception $e) {
-                return $this->error('Invalid token', 401);
-            }
-        } else if (!auth('api')->check()) {
+        if (!auth('api')->check()) {
             return $this->error('Authentication required', 401);
         }
 
-        $user = auth('api')->user() ?? ($token ? $user : null);
+        $user = auth('api')->user();
+
+        if (!in_array($user->role, ['ADMIN', 'INVESTOR'])) {
+            return $this->error('Unauthorized', 401);
+        }
 
         // Lookup by id only — the frontend always passes sme_profile.id.
         // Using OR (id=X OR user_id=X) risks matching two different profiles.
@@ -739,27 +715,17 @@ class ReportsController extends Controller
      */
     public function portfolio(Request $request)
     {
-        // Check for token in query param (for new-tab downloads) or normal auth
-        $token = $request->input('token');
         $programId = $request->input('programId');
 
-        if ($token) {
-            try {
-                /** @var \PHPOpenSourceSaver\JWTAuth\JWTGuard $guard */
-                $guard = Auth::guard('api');
-                /** @var \App\Models\User $user */
-                $user = $guard->setToken($token)->authenticate();
-                if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
-                    return $this->error('Unauthorized', 401);
-                }
-            } catch (\Exception $e) {
-                return $this->error('Invalid token', 401);
-            }
-        } else if (!auth('api')->check()) {
+        if (!auth('api')->check()) {
             return $this->error('Authentication required', 401);
         }
 
-        $user = auth('api')->user() ?? ($token ? $user : null);
+        $user = auth('api')->user();
+
+        if (!in_array($user->role, ['ADMIN', 'INVESTOR'])) {
+            return $this->error('Unauthorized', 401);
+        }
 
         $program = $programId ? Program::with('template')->find($programId) : null;
 

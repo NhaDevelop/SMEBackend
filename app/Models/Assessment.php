@@ -8,12 +8,13 @@ class Assessment extends Model
 {
     protected $fillable = [
         'sme_id', 'template_id', 'program_id', 'status', 
-        'total_score', 'questions_snapshot', 
+        'total_score', 'pillar_scores', 'questions_snapshot', 
         'started_at', 'completed_at'
     ];
 
     protected $casts = [
         'questions_snapshot' => 'array',
+        'pillar_scores' => 'array',
         'program_id' => 'integer',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
