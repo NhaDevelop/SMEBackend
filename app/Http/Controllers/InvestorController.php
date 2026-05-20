@@ -624,10 +624,6 @@ class InvestorController extends Controller
         return $this->success($enrollment, 'Enrolled in program successfully', 201);
     }
 
-    /**
-     * GET /api/investor/programs
-     * List published programs with live stats for investors.
-     */
     public function programs()
     {
         $user = auth()->user();
@@ -636,80 +632,86 @@ class InvestorController extends Controller
         }
 
         $investorId = $user->investorProfile?->id;
-
-        $programs = Program::where('status', 'Published')
-            ->with(['template'])
-            ->get()
-            ->map(function (Program $program) use ($investorId) {
-                // Count SMEs enrolled in this specific program
-                $totalSmes = ProgramEnrollment::where('program_id', $program->id)
-                    ->whereNotNull('sme_id')
-                    ->count();
-
-                // Check if CURRENT investor is enrolled
-                $isEnrolled = false;
-                $totalInvestors = ProgramEnrollment::where('program_id', $program->id)
-                    ->whereNotNull('investor_id')
-                    ->count();
-
-                if ($investorId) {
-                    $isEnrolled = ProgramEnrollment::where('program_id', $program->id)
-                        ->where('investor_id', $investorId)
-                        ->exists();
-                }
-
-                // Calculate average score if there's an associated template
-                $smeIds = ProgramEnrollment::where('program_id', $program->id)
+        
+        $cacheKey = "investor_programs_data_v1_{$investorId}";
+        
+        $data = \Illuminate\Support\Facades\Cache::remember($cacheKey, 600, function () use ($investorId) {
+            $programs = Program::where('status', 'Published')
+                ->with(['template'])
+                ->get()
+                ->map(function (Program $program) use ($investorId) {
+                    // Count SMEs enrolled in this specific program
+                    $totalSmes = ProgramEnrollment::where('program_id', $program->id)
                         ->whereNotNull('sme_id')
-                        ->pluck('sme_id');
-                $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
-                    ->whereIn('sme_id', $smeIds)
-                    ->where('status', 'Completed')
-                    ->latest('completed_at')
-                    ->get()
-                    ->unique('sme_id');
+                        ->count();
 
-                $completedCount = $completedAssessments->count();
-                $avgScore = $completedCount > 0 ? round($completedAssessments->avg('total_score'), 1) : 0;
-                $progress = $totalSmes > 0 ? min(100, max(0, round(($completedCount / $totalSmes) * 100))) : 0;
+                    // Check if CURRENT investor is enrolled
+                    $isEnrolled = false;
+                    $totalInvestors = ProgramEnrollment::where('program_id', $program->id)
+                        ->whereNotNull('investor_id')
+                        ->count();
 
-                return [
-                    'id' => $program->id,
-                    'name' => $program->name,
-                    'description' => $program->description,
-                    'status' => 'Published',
-                    'template' => $program->template?->name,
-                    'sector' => $program->sector,
-                    'investmentAmount' => $program->investment_amount,
-                    'benefits' => $program->benefits,
-                    'smesCount' => $totalSmes,
-                    'investorsCount' => $totalInvestors,
-                    'isEnrolled' => $isEnrolled,
-                    'avgScore' => $avgScore,
-                    'progress' => $progress,
-                    'startDate' => $program->start_date ? \Carbon\Carbon::parse($program->start_date)->format('Y-m-d') : null,
-                    'endDate' => $program->end_date ? \Carbon\Carbon::parse($program->end_date)->format('Y-m-d') : null,
-                    'isEnrollmentClosed' => $program->isEnrollmentClosed(),
-                    'isAssessmentPeriodOver' => $program->isAssessmentPeriodOver(),
-                    'isFinished' => $program->isFinished(),
-                    'isComingSoon' => $program->isComingSoon(),
-                    'enrollmentDeadline' => $program->enrollment_deadline ? $program->enrollment_deadline->format('Y-m-d H:i:s') : null,
-                ];
-            });
+                    if ($investorId) {
+                        $isEnrolled = ProgramEnrollment::where('program_id', $program->id)
+                            ->where('investor_id', $investorId)
+                            ->exists();
+                    }
 
-        $enrolledPrograms = $programs->filter(fn($p) => $p['isEnrolled']);
+                    // Calculate average score if there's an associated template
+                    $smeIds = ProgramEnrollment::where('program_id', $program->id)
+                            ->whereNotNull('sme_id')
+                            ->pluck('sme_id');
+                    $completedAssessments = \App\Models\Assessment::where('template_id', $program->template_id)
+                        ->whereIn('sme_id', $smeIds)
+                        ->where('status', 'Completed')
+                        ->latest('completed_at')
+                        ->get()
+                        ->unique('sme_id');
 
-        $stats = [
-            'total' => $programs->count(),
-            'active' => $enrolledPrograms->count(),
-            'enrolled' => $enrolledPrograms->sum('smesCount'),
-            'avgScore' => $enrolledPrograms->count() > 0 ? round($enrolledPrograms->avg('avgScore'), 1) : 0,
-        ];
+                    $completedCount = $completedAssessments->count();
+                    $avgScore = $completedCount > 0 ? round($completedAssessments->avg('total_score'), 1) : 0;
+                    $progress = $totalSmes > 0 ? min(100, max(0, round(($completedCount / $totalSmes) * 100))) : 0;
 
-        return $this->success([
-            'programs' => $programs,
-            'stats' => $stats
-        ], 'Programs retrieved successfully');
+                    return [
+                        'id' => $program->id,
+                        'name' => $program->name,
+                        'description' => $program->description,
+                        'status' => 'Published',
+                        'template' => $program->template?->name,
+                        'sector' => $program->sector,
+                        'investmentAmount' => $program->investment_amount,
+                        'benefits' => $program->benefits,
+                        'smesCount' => $totalSmes,
+                        'investorsCount' => $totalInvestors,
+                        'isEnrolled' => $isEnrolled,
+                        'avgScore' => $avgScore,
+                        'progress' => $progress,
+                        'startDate' => $program->start_date ? \Carbon\Carbon::parse($program->start_date)->format('Y-m-d') : null,
+                        'endDate' => $program->end_date ? \Carbon\Carbon::parse($program->end_date)->format('Y-m-d') : null,
+                        'isEnrollmentClosed' => $program->isEnrollmentClosed(),
+                        'isAssessmentPeriodOver' => $program->isAssessmentPeriodOver(),
+                        'isFinished' => $program->isFinished(),
+                        'isComingSoon' => $program->isComingSoon(),
+                        'enrollmentDeadline' => $program->enrollment_deadline ? $program->enrollment_deadline->format('Y-m-d H:i:s') : null,
+                    ];
+                });
+
+            $enrolledPrograms = $programs->filter(fn($p) => $p['isEnrolled']);
+
+            $stats = [
+                'total' => $programs->count(),
+                'active' => $enrolledPrograms->count(),
+                'enrolled' => $enrolledPrograms->sum('smesCount'),
+                'avgScore' => $enrolledPrograms->count() > 0 ? round($enrolledPrograms->avg('avgScore'), 1) : 0,
+            ];
+
+            return [
+                'programs' => $programs,
+                'stats' => $stats
+            ];
+        });
+
+        return $this->success($data, 'Programs retrieved successfully');
     }
 
     /**

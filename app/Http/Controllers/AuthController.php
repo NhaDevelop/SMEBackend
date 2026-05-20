@@ -74,11 +74,11 @@ class AuthController extends Controller
 
         $user = User::create([
             'full_name' => $validated['full_name'],
-            'email'     => $validated['email'],
-            'phone'     => $validated['phone'] ?? null,
-            'password'  => Hash::make($validated['password']),
-            'role'      => $validated['role'],
-            'status'    => 'PENDING_VERIFICATION',
+            'email' => $validated['email'],
+            'phone' => $validated['phone'] ?? null,
+            'password' => Hash::make($validated['password']),
+            'role' => $validated['role'],
+            'status' => 'PENDING_VERIFICATION',
         ]);
 
         $docPath = null;
@@ -98,8 +98,7 @@ class AuthController extends Controller
                 'website_url' => $validated['website_url'] ?? null,
                 'registration_document' => $docPath,
             ]);
-        }
-        else if ($validated['role'] === 'INVESTOR') {
+        } else if ($validated['role'] === 'INVESTOR') {
             $user->investorProfile()->create([
                 'organization_name' => $validated['organization_name'] ?? $validated['company_name'] ?? null,
                 'investor_type' => $validated['investor_type'] ?? null,
@@ -125,12 +124,12 @@ class AuthController extends Controller
 
         // Send Telegram Alert (only pass serializable data, not file objects)
         SendTelegramRegistrationAlertJob::dispatch([
-            'full_name'         => $validated['full_name'] ?? null,
-            'role'              => $validated['role'] ?? null,
-            'email'             => $validated['email'] ?? null,
-            'company_name'      => $validated['company_name'] ?? $validated['organization_name'] ?? null,
+            'full_name' => $validated['full_name'] ?? null,
+            'role' => $validated['role'] ?? null,
+            'email' => $validated['email'] ?? null,
+            'company_name' => $validated['company_name'] ?? $validated['organization_name'] ?? null,
             'organization_name' => $validated['organization_name'] ?? null,
-            'industry'          => $validated['industry'] ?? null,
+            'industry' => $validated['industry'] ?? null,
         ]);
 
         return $this->success(null, 'Registration successful, awaiting admin approval', 201);
@@ -170,8 +169,7 @@ class AuthController extends Controller
 
         if ($user->role === 'SME') {
             $user->load('smeProfile');
-        }
-        elseif ($user->role === 'INVESTOR') {
+        } elseif ($user->role === 'INVESTOR') {
             $user->load('investorProfile');
         }
 

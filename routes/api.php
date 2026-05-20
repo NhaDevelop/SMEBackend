@@ -158,6 +158,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('documents', [App\Http\Controllers\DocumentController::class, 'index']);
     Route::post('documents', [App\Http\Controllers\DocumentController::class, 'store']);
     Route::get('documents/{id}', [App\Http\Controllers\DocumentController::class, 'show']);
+    Route::get('documents/{id}/download', [App\Http\Controllers\DocumentController::class, 'download']);
     Route::delete('documents/{id}', [App\Http\Controllers\DocumentController::class, 'destroy']);
 
     // Shared Data (Authenticated but role-neutral)

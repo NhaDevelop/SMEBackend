@@ -1,0 +1,258 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Full SME DB Schema (Complete)" id="full_schema">
+    <mxGraphModel dx="4330" dy="4939" grid="1" gridSize="7" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2800" pageHeight="3900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="users" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;USERS&#xa;──────────────────────&#xa;PK id : bigint&#xa;full_name : string&#xa;email : string (unique)&#xa;password : string&#xa;phone : string (nullable)&#xa;role : enum(SME,INVESTOR,ADMIN)&#xa;status : enum(PENDING,ACTIVE,REJECTED)&#xa;is_verified : boolean&#xa;email_verified_at : timestamp (null)&#xa;last_login_at : timestamp (null)&#xa;remember_token : string&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="256" width="300" x="670" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="sme_profiles" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;SME_PROFILES&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK user_id → users&#xa;company_name : string (null)&#xa;registration_number : string (null)&#xa;industry : string (null)&#xa;stage : string (null)&#xa;years_in_business : string (null)&#xa;team_size : string (null)&#xa;address : string (null)&#xa;registration_document : string (null)&#xa;readiness_score : decimal(5,2) (null)&#xa;risk_level : string (null)&#xa;founding_date : date (null)&#xa;website_url : string (null)&#xa;FK verified_by_user_id → users (null)&#xa;verification_date : timestamp (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="346" width="260" x="360" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="investor_profiles" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;INVESTOR_PROFILES&#xa;──────────────────&#xa;PK id : bigint&#xa;FK user_id → users&#xa;organization_name : string (null)&#xa;registration_number : string (null)&#xa;investor_type : string (null)&#xa;industry : string (null)&#xa;years_in_business : string (null)&#xa;team_size : string (null)&#xa;address : text (null)&#xa;registration_document : string (null)&#xa;min_ticket_size : decimal(15,2) (null)&#xa;max_ticket_size : decimal(15,2) (null)&#xa;preferred_industries : json (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="292" width="255" x="1255" y="267" as="geometry" />
+        </mxCell>
+        <mxCell id="sectors" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;SECTORS&#xa;──────────────────────&#xa;PK id : bigint&#xa;name : string&#xa;description : text (null)&#xa;color : string&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="146" width="290" x="1570" y="504" as="geometry" />
+        </mxCell>
+        <mxCell id="templates" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;TEMPLATES&#xa;──────────────────────&#xa;PK id : bigint&#xa;name : string&#xa;version : string&#xa;industry : string (null)&#xa;description : text (null)&#xa;status : string (Draft/Active/Archived)&#xa;settings : json (null)&#xa;deleted_at : timestamp (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="202" width="290" x="700" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="pillars" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;PILLARS&#xa;───────────────&#xa;PK id : bigint&#xa;name : string&#xa;weight : decimal(5,2)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="138" width="200" x="1010" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="questions" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;QUESTIONS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK template_id → templates&#xa;FK pillar_id → pillars&#xa;text : text&#xa;type : string (Yes/No, Scale, MC)&#xa;weight : decimal(5,2)&#xa;required : boolean&#xa;options : json (null)&#xa;helper_text : text (null)&#xa;deleted_at : timestamp (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="250" width="290" x="880" y="610" as="geometry" />
+        </mxCell>
+        <mxCell id="framework_settings" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;FRAMEWORK_SETTINGS&#xa;──────────────────────&#xa;PK id : bigint&#xa;key : string (unique)&#xa;value : json&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="112" width="290" x="1580" y="380" as="geometry" />
+        </mxCell>
+        <mxCell id="programs" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;PROGRAMS&#xa;──────────────────────&#xa;PK id : bigint&#xa;name : string&#xa;slug : string (unique, null)&#xa;description : text (null)&#xa;FK template_id → templates (null)&#xa;FK created_by_user_id → users (null)&#xa;status : string&#xa;start_date : date (null)&#xa;end_date : date (null)&#xa;enrollment_deadline : timestamp (null)&#xa;sector : string (null)&#xa;duration : string (null)&#xa;deadline : string (null)&#xa;investment_amount : string (null)&#xa;benefits : json (null)&#xa;thresholds : json (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="320" width="290" x="430" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="program_enrollments" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;PROGRAM_ENROLLMENTS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK program_id → programs&#xa;FK sme_id → sme_profiles (null)&#xa;FK investor_id → investor_profiles (null)&#xa;status : string&#xa;enrollment_date : timestamp (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="166" width="260" x="715" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="program_comments" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;PROGRAM_COMMENTS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK program_id → programs&#xa;FK user_id → users&#xa;content : text&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="130" width="290" x="-28" y="595" as="geometry" />
+        </mxCell>
+        <mxCell id="investor_interests" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;INVESTOR_INTERESTS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK investor_id → investor_profiles&#xa;FK sme_id → sme_profiles&#xa;notes : text (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="130" width="290" x="1050" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="assessments" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;ASSESSMENTS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK sme_id → sme_profiles&#xa;FK template_id → templates&#xa;FK program_id → programs (null)&#xa;status : string&#xa;total_score : decimal(5,2)&#xa;pillar_scores : json (null)&#xa;questions_snapshot : json (null)&#xa;started_at : timestamp&#xa;completed_at : timestamp (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="238" width="290" x="180" y="990" as="geometry" />
+        </mxCell>
+        <mxCell id="assessment_responses" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#d5e8d4;strokeColor=#82b366;gradientColor=none;swimlaneFillColor=default;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;ASSESSMENT_RESPONSES&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK assessment_id → assessments&#xa;FK question_id → questions&#xa;answer_value : json&#xa;score_awarded : decimal(5,2)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="148" width="290" x="630" y="1150" as="geometry" />
+        </mxCell>
+        <mxCell id="goals" parent="1" style="shape=table;startSize=40;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;GOALS&#xa;──────────────────&#xa;PK id : bigint&#xa;FK sme_id → sme_profiles&#xa;FK pillar_id → pillars (null)&#xa;FK created_by → users (null)&#xa;FK verified_by → users (null)&#xa;title : string&#xa;description : text (null)&#xa;status : string&#xa;due_date : date (null)&#xa;progress_percentage : integer&#xa;target_score : decimal(5,2) (null)&#xa;pillar_targets : json (null)&#xa;proof_note : text (null)&#xa;proof_document : string (null)&#xa;proof_verified : boolean&#xa;verified_at : timestamp (null)&#xa;rejection_note : text (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="357" width="290" x="1570" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="documents" parent="1" style="shape=table;startSize=40;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;DOCUMENTS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK sme_id → sme_profiles&#xa;FK verified_by_user_id → users (null)&#xa;name : string&#xa;original_filename : string&#xa;type : string (null)&#xa;category : string (null)&#xa;description : text (null)&#xa;size : bigint (null)&#xa;file_url : string&#xa;is_verified : boolean&#xa;uploaded_at : timestamp (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="274" width="290" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="messages" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;MESSAGES&#xa;──────────────────────&#xa;PK id : bigint&#xa;chat_id : string (indexed)&#xa;FK sender_id → users&#xa;FK receiver_id → users&#xa;content : text&#xa;read : boolean&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="166" width="290" x="707" y="-206" as="geometry" />
+        </mxCell>
+        <mxCell id="notifications" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;NOTIFICATIONS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK user_id → users&#xa;type : string (null)&#xa;message : text&#xa;channel : string (IN_APP)&#xa;is_read : boolean&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="166" width="290" x="1400" y="660" as="geometry" />
+        </mxCell>
+        <mxCell id="verification_requests" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;VERIFICATION_REQUESTS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK user_id → users&#xa;document_type : string&#xa;status : string (Pending/Approved/Rejected)&#xa;evidence_link : string (null)&#xa;notes : text (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="166" width="290" x="290" y="-31" as="geometry" />
+        </mxCell>
+        <mxCell id="audit_logs" parent="1" style="shape=table;startSize=20;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=6;" value="&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;&#xa;AUDIT_LOGS&#xa;──────────────────────&#xa;PK id : bigint&#xa;FK user_id → users (null)&#xa;action : string&#xa;target_entity : string (null)&#xa;target_id : bigint (null)&#xa;details : text (null)&#xa;ip_address : string(45) (null)&#xa;created_at / updated_at" vertex="1">
+          <mxGeometry height="184" width="290" x="1100" y="-40" as="geometry" />
+        </mxCell>
+        <mxCell id="e500" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#6c8ebf;strokeWidth=6;" target="sme_profiles">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="675" y="158" />
+              <mxPoint x="675" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e501" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#6c8ebf;strokeWidth=6;" target="investor_profiles">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1230" y="230" />
+              <mxPoint x="1230" y="386" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e502" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#999999;strokeWidth=6;" target="verification_requests">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="635" y="90" />
+              <mxPoint x="635" y="3" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e503" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#999999;strokeWidth=6;exitX=1;exitY=0.25;exitDx=0;exitDy=0;" target="audit_logs">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="990" y="140" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e504" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#b85450;strokeWidth=6;fillColor=#f8cecc;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="messages">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="854" y="23" />
+              <mxPoint x="854" y="20" />
+              <mxPoint x="852" y="20" />
+            </Array>
+            <mxPoint x="852" y="21" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e505" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#9673a6;strokeWidth=6;" target="notifications">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="973" y="200" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e506" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#d79b00;strokeWidth=6;" target="program_comments">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="330" y="200" />
+              <mxPoint x="330" y="715" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e507" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#d79b00;strokeWidth=6;" target="programs">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="690" y="468" />
+              <mxPoint x="670" y="468" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e508" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#82b366;strokeWidth=6;" target="documents">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="145" y="170" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e509" edge="1" parent="1" source="users" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#e67e22;strokeWidth=6;" target="goals">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1267" y="182" />
+              <mxPoint x="1267" y="182" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e510" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#82b366;strokeWidth=6;" target="assessments">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="322" y="830" />
+            </Array>
+            <mxPoint x="430" y="830" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e511" edge="1" parent="1" source="sme_profiles" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#82b366;strokeWidth=6;" target="goals">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1000" y="320" />
+              <mxPoint x="1000" y="158" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e512" edge="1" parent="1" source="sme_profiles" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#82b366;strokeWidth=6;" target="documents">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="320" y="340" />
+              <mxPoint x="320" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e513" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#d79b00;strokeWidth=6;" target="program_enrollments">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="840" y="860" />
+            </Array>
+            <mxPoint x="720" y="860" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e514" edge="1" parent="1" source="sme_profiles" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#d6b656;strokeWidth=6;" target="investor_interests">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1250" y="570" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e515" edge="1" parent="1" source="investor_profiles" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#d79b00;strokeWidth=6;" target="program_enrollments">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1360" y="1043" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e516" edge="1" parent="1" source="investor_profiles" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#d6b656;strokeWidth=6;" target="investor_interests">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e517" edge="1" parent="1" source="templates" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#d79b00;strokeWidth=6;" target="programs">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="830" y="601" />
+              <mxPoint x="575" y="601" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e518" edge="1" parent="1" source="templates" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#b85450;strokeWidth=6;exitX=0.75;exitY=1;exitDx=0;exitDy=0;" target="questions">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e519" edge="1" parent="1" source="templates" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#82b366;strokeWidth=6;exitX=0.25;exitY=1;exitDx=0;exitDy=0;" target="assessments">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="773" y="620" />
+              <mxPoint x="380" y="620" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e520" edge="1" parent="1" source="pillars" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#b85450;strokeWidth=6;" target="questions">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1110" y="496" />
+              <mxPoint x="1080" y="496" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e521" edge="1" parent="1" source="pillars" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#b85450;strokeWidth=6;" target="goals">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1145" y="220" />
+              <mxPoint x="1500" y="220" />
+              <mxPoint x="1500" y="35" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e522" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#d79b00;strokeWidth=6;" target="program_enrollments">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="640" y="1043" />
+            </Array>
+            <mxPoint x="640" y="970" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e523" edge="1" parent="1" source="programs" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#d79b00;strokeWidth=6;" target="program_comments">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e524" edge="1" parent="1" source="programs" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#82b366;strokeWidth=6;" target="assessments">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="335" y="890" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e525" edge="1" parent="1" source="assessments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#82b366;strokeWidth=6;" target="assessment_responses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e526" edge="1" parent="1" source="questions" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;strokeColor=#82b366;strokeWidth=6;" target="assessment_responses">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="994" y="1200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

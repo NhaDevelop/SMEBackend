@@ -1,0 +1,247 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Full SME DB Schema" id="0">
+    <mxGraphModel dx="2000" dy="2000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2339" pageHeight="3300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- CORE AUTH & PROFILES -->
+        <mxCell id="users" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&#xa;users&#xa;─────────────&#xa;PK id&#xa;name&#xa;email&#xa;role (SME/INVESTOR/ADMIN)&#xa;status&#xa;is_verified" vertex="1">
+          <mxGeometry height="150" width="260" x="800" y="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sme_profiles" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;" value="&#xa;sme_profiles&#xa;─────────────&#xa;PK id&#xa;FK user_id → users&#xa;company_name&#xa;readiness_score&#xa;risk_level" vertex="1">
+          <mxGeometry height="130" width="260" x="400" y="300" as="geometry" />
+        </mxCell>
+
+        <mxCell id="investor_profiles" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#fff2cc;strokeColor=#d6b656;" value="&#xa;investor_profiles&#xa;─────────────&#xa;PK id&#xa;FK user_id → users&#xa;organization_name&#xa;investor_type" vertex="1">
+          <mxGeometry height="110" width="260" x="1200" y="300" as="geometry" />
+        </mxCell>
+
+        <!-- COMMUNICATION & LOGS -->
+        <mxCell id="messages" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&#xa;messages&#xa;─────────────&#xa;PK id&#xa;FK sender_id → users&#xa;FK receiver_id → users&#xa;chat_id&#xa;content" vertex="1">
+          <mxGeometry height="130" width="260" x="300" y="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="notifications" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&#xa;notifications&#xa;─────────────&#xa;PK id&#xa;FK user_id → users&#xa;type&#xa;message&#xa;is_read" vertex="1">
+          <mxGeometry height="130" width="260" x="1300" y="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="verification_requests" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#f5f5f5;strokeColor=#666666;" value="&#xa;verification_requests&#xa;─────────────&#xa;PK id&#xa;FK user_id → users&#xa;document_type&#xa;status" vertex="1">
+          <mxGeometry height="110" width="260" x="600" y="-100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="audit_logs" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#f5f5f5;strokeColor=#666666;" value="&#xa;audit_logs&#xa;─────────────&#xa;PK id&#xa;FK user_id → users&#xa;action&#xa;target_entity" vertex="1">
+          <mxGeometry height="110" width="260" x="1000" y="-100" as="geometry" />
+        </mxCell>
+
+        <!-- FRAMEWORK & TEMPLATES -->
+        <mxCell id="framework_settings" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#f8cecc;strokeColor=#b85450;" value="&#xa;framework_settings&#xa;─────────────&#xa;PK id&#xa;key (e.g., framework_config)&#xa;value (JSON)" vertex="1">
+          <mxGeometry height="110" width="260" x="1500" y="450" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sectors" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#f8cecc;strokeColor=#b85450;" value="&#xa;sectors&#xa;─────────────&#xa;PK id&#xa;name&#xa;color" vertex="1">
+          <mxGeometry height="90" width="260" x="1500" y="600" as="geometry" />
+        </mxCell>
+
+        <mxCell id="templates" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#f8cecc;strokeColor=#b85450;" value="&#xa;templates&#xa;─────────────&#xa;PK id&#xa;name&#xa;status" vertex="1">
+          <mxGeometry height="90" width="260" x="800" y="450" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pillars" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#f8cecc;strokeColor=#b85450;" value="&#xa;pillars&#xa;─────────────&#xa;PK id&#xa;name&#xa;weight" vertex="1">
+          <mxGeometry height="90" width="260" x="1200" y="450" as="geometry" />
+        </mxCell>
+
+        <mxCell id="questions" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#f8cecc;strokeColor=#b85450;" value="&#xa;questions&#xa;─────────────&#xa;PK id&#xa;FK template_id → templates&#xa;FK pillar_id → pillars&#xa;text&#xa;weight" vertex="1">
+          <mxGeometry height="130" width="260" x="1000" y="600" as="geometry" />
+        </mxCell>
+
+        <!-- PROGRAMS & ENROLLMENTS -->
+        <mxCell id="programs" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&#xa;programs&#xa;─────────────&#xa;PK id&#xa;FK template_id → templates&#xa;FK created_by_user_id → users&#xa;name&#xa;thresholds (JSON)&#xa;status" vertex="1">
+          <mxGeometry height="150" width="260" x="600" y="600" as="geometry" />
+        </mxCell>
+
+        <mxCell id="program_comments" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&#xa;program_comments&#xa;─────────────&#xa;PK id&#xa;FK program_id → programs&#xa;FK user_id → users&#xa;content" vertex="1">
+          <mxGeometry height="110" width="260" x="250" y="620" as="geometry" />
+        </mxCell>
+
+        <mxCell id="program_enrollments" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&#xa;program_enrollments&#xa;─────────────&#xa;PK id&#xa;FK program_id → programs&#xa;FK sme_id → sme_profiles&#xa;FK investor_id → investor_profiles&#xa;status" vertex="1">
+          <mxGeometry height="130" width="260" x="900" y="800" as="geometry" />
+        </mxCell>
+
+        <mxCell id="investor_interests" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#fff2cc;strokeColor=#d6b656;" value="&#xa;investor_interests&#xa;─────────────&#xa;PK id&#xa;FK investor_id → investor_profiles&#xa;FK sme_id → sme_profiles&#xa;notes" vertex="1">
+          <mxGeometry height="110" width="260" x="1250" y="800" as="geometry" />
+        </mxCell>
+
+        <!-- ASSESSMENTS -->
+        <mxCell id="assessments" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;" value="&#xa;assessments&#xa;─────────────&#xa;PK id&#xa;FK sme_id → sme_profiles&#xa;FK template_id → templates&#xa;FK program_id → programs&#xa;total_score&#xa;status" vertex="1">
+          <mxGeometry height="150" width="260" x="500" y="800" as="geometry" />
+        </mxCell>
+
+        <mxCell id="assessment_responses" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;" value="&#xa;assessment_responses&#xa;─────────────&#xa;PK id&#xa;FK assessment_id → assessments&#xa;FK question_id → questions&#xa;answer_value&#xa;score_awarded" vertex="1">
+          <mxGeometry height="130" width="260" x="650" y="1000" as="geometry" />
+        </mxCell>
+
+        <!-- GOALS & DOCUMENTS -->
+        <mxCell id="goals" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;" value="&#xa;goals&#xa;─────────────&#xa;PK id&#xa;FK sme_id → sme_profiles&#xa;FK pillar_id → pillars&#xa;FK created_by → users&#xa;FK verified_by → users&#xa;title&#xa;status&#xa;progress_percentage" vertex="1">
+          <mxGeometry height="170" width="260" x="200" y="1000" as="geometry" />
+        </mxCell>
+
+        <mxCell id="documents" parent="1" style="shape=table;startSize=30;container=0;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fillColor=#d5e8d4;strokeColor=#82b366;" value="&#xa;documents&#xa;─────────────&#xa;PK id&#xa;FK sme_id → sme_profiles&#xa;FK verified_by_user_id → users&#xa;name&#xa;file_url" vertex="1">
+          <mxGeometry height="130" width="260" x="50" y="300" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== EDGES ==================== -->
+
+        <!-- Users -> SME & Investor -->
+        <mxCell id="e_u_sme" edge="1" parent="1" source="users" target="sme_profiles" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_u_inv" edge="1" parent="1" source="users" target="investor_profiles" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Users -> Comms -->
+        <mxCell id="e_u_msg" edge="1" parent="1" source="users" target="messages" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_u_notif" edge="1" parent="1" source="users" target="notifications" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_u_verif" edge="1" parent="1" source="users" target="verification_requests" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_u_audit" edge="1" parent="1" source="users" target="audit_logs" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Framework Settings (standalone) -->
+
+        <!-- Templates -> Programs, Assessments, Questions -->
+        <mxCell id="e_t_prog" edge="1" parent="1" source="templates" target="programs" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_t_ass" edge="1" parent="1" source="templates" target="assessments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="830" y="750" />
+              <mxPoint x="630" y="750" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_t_ques" edge="1" parent="1" source="templates" target="questions" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Pillars -> Questions, Goals -->
+        <mxCell id="e_p_ques" edge="1" parent="1" source="pillars" target="questions" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_p_goals" edge="1" parent="1" source="pillars" target="goals" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1330" y="1100" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Programs -> Assessments, Enrollments, Comments -->
+        <mxCell id="e_pr_ass" edge="1" parent="1" source="programs" target="assessments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pr_enr" edge="1" parent="1" source="programs" target="program_enrollments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pr_com" edge="1" parent="1" source="programs" target="program_comments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Users -> Programs, Comments -->
+        <mxCell id="e_u_prog" edge="1" parent="1" source="users" target="programs" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#d79b00;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="750" y="250" />
+              <mxPoint x="750" y="600" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_u_com" edge="1" parent="1" source="users" target="program_comments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#d79b00;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="200" y="175" />
+              <mxPoint x="200" y="675" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- SME -> Assessments, Enrollments, Interests, Goals, Documents -->
+        <mxCell id="e_sme_ass" edge="1" parent="1" source="sme_profiles" target="assessments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_sme_enr" edge="1" parent="1" source="sme_profiles" target="program_enrollments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="530" y="550" />
+              <mxPoint x="930" y="550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_sme_int" edge="1" parent="1" source="sme_profiles" target="investor_interests" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="530" y="550" />
+              <mxPoint x="1270" y="550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_sme_goals" edge="1" parent="1" source="sme_profiles" target="goals" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="330" y="430" />
+              <mxPoint x="330" y="1000" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_sme_docs" edge="1" parent="1" source="sme_profiles" target="documents" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Investor -> Enrollments, Interests -->
+        <mxCell id="e_inv_enr" edge="1" parent="1" source="investor_profiles" target="program_enrollments" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1100" y="355" />
+              <mxPoint x="1100" y="865" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_inv_int" edge="1" parent="1" source="investor_profiles" target="investor_interests" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Assessments & Questions -> Responses -->
+        <mxCell id="e_ass_resp" edge="1" parent="1" source="assessments" target="assessment_responses" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ques_resp" edge="1" parent="1" source="questions" target="assessment_responses" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1130" y="1065" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Users -> Goals (created_by, verified_by) -->
+        <mxCell id="e_u_goals1" edge="1" parent="1" source="users" target="goals" style="edgeStyle=orthogonalEdgeStyle;endArrow=ERmany;startArrow=ERone;dashed=1;strokeColor=#d79b00;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="180" y="175" />
+              <mxPoint x="180" y="1085" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
