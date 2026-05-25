@@ -81,10 +81,21 @@ class AssessmentService
             return $assessment->pillar_scores;
         }
 
-        // Use Cache::remember for pillars since they rarely change
-        $pillars = \Illuminate\Support\Facades\Cache::remember('pillars_keyed', 3600, function () {
-            return Pillar::all()->keyBy('id');
-        });
+        // ENTERPRISE ARCHITECTURE: Framework Versioning
+        // Prioritize the snapshot of rules taken when the Program was created,
+        // so that active programs aren't affected by live pillar weight changes.
+        $program = $assessment->program_id ? \App\Models\Program::find($assessment->program_id) : null;
+        
+        if ($program && !empty($program->scoring_snapshot)) {
+            $pillars = collect($program->scoring_snapshot)->map(function ($p) {
+                return (object)$p;
+            })->keyBy('id');
+        } else {
+            // Fallback to live global pillars if no snapshot exists
+            $pillars = \Illuminate\Support\Facades\Cache::remember('pillars_keyed', 3600, function () {
+                return Pillar::all()->keyBy('id');
+            });
+        }
 
         // ── KEY PERFORMANCE FIX ──────────────────────────────────────────────────
         // If responses are already eager-loaded on the model (e.g. when called
@@ -149,7 +160,15 @@ class AssessmentService
             ->with('question')
             ->get();
 
-        $pillars = Pillar::all()->keyBy('id');
+        $program = $assessment->program_id ? \App\Models\Program::find($assessment->program_id) : null;
+        
+        if ($program && !empty($program->scoring_snapshot)) {
+            $pillars = collect($program->scoring_snapshot)->map(function ($p) {
+                return (object)$p;
+            })->keyBy('id');
+        } else {
+            $pillars = Pillar::all()->keyBy('id');
+        }
 
         $pillarMaxes = [];
         foreach ($responses as $r) {

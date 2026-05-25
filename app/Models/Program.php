@@ -40,6 +40,7 @@ class Program extends Model
         'investment_amount',
         'benefits',
         'thresholds',
+        'scoring_snapshot',
         'created_by_user_id'
     ];
 
@@ -48,6 +49,7 @@ class Program extends Model
         'program_id' => 'integer',
         'benefits' => 'array',
         'thresholds' => 'array',
+        'scoring_snapshot' => 'array',
         'start_date' => 'date',
         'end_date' => 'date',
         'enrollment_deadline' => 'datetime',

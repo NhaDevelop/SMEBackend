@@ -20,13 +20,11 @@ class ProgramController extends Controller
         if (!$user || $user->role !== 'ADMIN') {
             $query->whereIn('status', ['Published', 'Active', 'Open']);
         }
-
         // Optimization: use withCount to get enrollment stats in a single query
         $query->withCount([
             'enrollments as smes_count' => function ($q) { $q->whereNotNull('sme_id'); },
             'enrollments as investors_count' => function ($q) { $q->whereNotNull('investor_id'); }
         ]);
-
         // Optimization: batch check enrollment for the current user
         $userEnrollments = [];
         if ($user) {
@@ -86,8 +84,11 @@ class ProgramController extends Controller
             'thresholds' => 'nullable|array',
         ]);
 
+        $snapshot = \App\Models\Pillar::all()->toArray();
+
         $program = Program::create(array_merge($validated, [
             'status' => $validated['status'] ?? 'Coming Soon',
+            'scoring_snapshot' => $snapshot,
             'created_by_user_id' => auth()->id()
         ]));
 

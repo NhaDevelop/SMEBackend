@@ -178,8 +178,8 @@ class AssessmentController extends Controller
                     $options = collect($question->options);
                     $option = $options->firstWhere('label', $extractedValue);
                     if ($option) {
-                        // Use the exact point value defined in the option for this question
-                        $scoreAwarded = (float) data_get($option, 'points', 0);
+                        // Use the exact point value defined in the option, capped by question weight
+                        $scoreAwarded = min((float)$question->weight, (float) data_get($option, 'points', 0));
                     } elseif ($extractedValue === true || $extractedValue === 'true' || $extractedValue === 'Yes') {
                         // Fallback in case it's a Yes/No type but the options were malformed
                         $scoreAwarded = $question->weight;
