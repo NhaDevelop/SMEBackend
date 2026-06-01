@@ -13,7 +13,7 @@ class QuestionController extends Controller
     public function index(Request $request)
     {
         $query = Question::query();
-        
+
         if ($request->filled('template_id')) {
             $query->where('template_id', '=', $request->template_id);
         }
@@ -25,12 +25,12 @@ class QuestionController extends Controller
     {
         $validated = $request->validate([
             'template_id' => 'required|exists:templates,id',
-            'pillar_id'   => 'required|string',
-            'text'        => 'required|string',
-            'type'        => 'required|string',
-            'weight'      => 'required|numeric|min:0|max:100',
-            'required'    => 'boolean',
-            'options'     => 'nullable|array',
+            'pillar_id' => 'required|string',
+            'text' => 'required|string',
+            'type' => 'required|string',
+            'weight' => 'required|numeric|min:0|max:100',
+            'required' => 'boolean',
+            'options' => 'nullable|array',
             'helper_text' => 'nullable|string',
         ]);
 
@@ -47,11 +47,11 @@ class QuestionController extends Controller
         $question = Question::findOrFail($id);
 
         $validated = $request->validate([
-            'text'        => 'sometimes|string',
-            'type'        => 'sometimes|string',
-            'weight'      => 'sometimes|numeric|min:0|max:100',
-            'required'    => 'sometimes|boolean',
-            'options'     => 'nullable|array',
+            'text' => 'sometimes|string',
+            'type' => 'sometimes|string',
+            'weight' => 'sometimes|numeric|min:0|max:100',
+            'required' => 'sometimes|boolean',
+            'options' => 'nullable|array',
             'helper_text' => 'nullable|string',
         ]);
 

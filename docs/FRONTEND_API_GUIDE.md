@@ -4,7 +4,7 @@ This guide explains how to connect the frontend to the Laravel backend.
 
 ## 📍 Base Configuration
 - **Base URL:** `http://localhost:8000/api`
-- **Auth Mode:** JWT (Bearer Token)
+- **Auth Mode:** Laravel Sanctum (Bearer Token)
 
 ---
 

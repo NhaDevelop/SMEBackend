@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\FrameworkSetting;
+use App\Models\Pillar;
 use App\Models\Template;
 use Illuminate\Http\Request;
 
@@ -10,7 +12,7 @@ class TemplateController extends Controller
 {
     public function index()
     {
-        return $this->success(Template::withCount(['questions'])->get(), 'Templates retrieved successfully');
+        return $this->success(Template::withCount(['questions'])->latest()->get(), 'Templates retrieved successfully');
     }
 
     public function active(Request $request)
@@ -42,9 +44,35 @@ class TemplateController extends Controller
             'name' => 'required|string|max:255',
             'version' => 'nullable|string',
             'description' => 'nullable|string',
+            'industry' => 'nullable|string',
             'status' => 'nullable|string',
             'settings' => 'nullable|array'
         ]);
+
+        // 🔒 FAIRNESS SNAPSHOT: Bake the current Framework Settings into this template
+        // at the moment of creation. This permanently stores the pillar weights (e.g.,
+        // Financial = 20%) inside the template itself. Even if an Admin changes the
+        // global Framework Settings tomorrow (to 40%), this template will always
+        // score using the original 20% weight — for every assessment and every retake.
+        if (empty($validated['settings'])) {
+            $frameworkConfig = \App\Models\FrameworkSetting::where('key', 'framework_config')->first();
+            if ($frameworkConfig) {
+                $validated['settings'] = $frameworkConfig->value;
+            } else {
+                // Fallback: build from live pillars if no framework_config exists yet
+                $validated['settings'] = [
+                    'pillars' => Pillar::all()
+                        ->map(fn($p) => ['id' => $p->id, 'name' => $p->name, 'weight' => $p->weight])
+                        ->toArray(),
+                    'thresholds' => [
+                        ['id' => 'investor', 'label' => 'Investor Ready', 'min' => 80, 'max' => 100, 'colorBg' => 'bg-emerald-500'],
+                        ['id' => 'near', 'label' => 'Near Ready', 'min' => 60, 'max' => 79, 'colorBg' => 'bg-amber-500'],
+                        ['id' => 'early', 'label' => 'Early Stage', 'min' => 40, 'max' => 59, 'colorBg' => 'bg-teal-500'],
+                        ['id' => 'pre', 'label' => 'Pre-Investment', 'min' => 0, 'max' => 39, 'colorBg' => 'bg-red-500'],
+                    ]
+                ];
+            }
+        }
 
         $template = Template::create($validated);
         return $this->success($template, 'Template created successfully', 201);
@@ -60,18 +88,74 @@ class TemplateController extends Controller
     {
         $template = Template::findOrFail($id);
         $validated = $request->validate([
-            'pillars' => 'required|array',
-            'thresholds' => 'required|array',
+            'name' => 'sometimes|string|max:255',
+            'version' => 'sometimes|nullable|string',
+            'description' => 'sometimes|nullable|string',
+            'industry' => 'sometimes|nullable|string',
+            'status' => 'sometimes|nullable|string',
+            'pillars' => 'sometimes|array',
+            'thresholds' => 'sometimes|array',
         ]);
 
-        $template->update([
-            'settings' => [
-                'pillars' => $validated['pillars'],
-                'thresholds' => $validated['thresholds']
-            ]
+        $updateData = [];
+        if ($request->has('name'))
+            $updateData['name'] = $validated['name'];
+        if ($request->has('version'))
+            $updateData['version'] = $validated['version'];
+        if ($request->has('description'))
+            $updateData['description'] = $validated['description'];
+        if ($request->has('industry'))
+            $updateData['industry'] = $validated['industry'];
+        if ($request->has('status'))
+            $updateData['status'] = $validated['status'];
+
+        if ($request->has('pillars') || $request->has('thresholds')) {
+            $settings = $template->settings ?? [];
+            if ($request->has('pillars'))
+                $settings['pillars'] = $validated['pillars'];
+            if ($request->has('thresholds'))
+                $settings['thresholds'] = $validated['thresholds'];
+            $updateData['settings'] = $settings;
+        }
+
+        if (!empty($updateData)) {
+            $template->update($updateData);
+        }
+
+        return $this->success($template, 'Template updated successfully');
+    }
+
+    public function duplicate(Request $request, $id)
+    {
+        $template = Template::with('questions')->findOrFail($id);
+
+        $validated = $request->validate([
+            'version' => 'nullable|string',
+            'name' => 'nullable|string|max:255',
+            'status' => 'nullable|string'
         ]);
 
-        return $this->success($template, 'Template settings updated');
+        $newTemplate = $template->replicate();
+        if (isset($validated['version']))
+            $newTemplate->version = $validated['version'];
+        if (isset($validated['name']))
+            $newTemplate->name = $validated['name'];
+        if (isset($validated['status']))
+            $newTemplate->status = $validated['status'];
+        else
+            $newTemplate->status = 'Draft';
+
+        $newTemplate->push();
+
+        // Duplicate questions
+        foreach ($template->questions as $question) {
+            $newQuestion = $question->replicate();
+            $newQuestion->template_id = $newTemplate->id;
+            $newQuestion->push();
+        }
+
+        $newTemplate->loadCount('questions');
+        return $this->success($newTemplate, 'Template duplicated successfully', 201);
     }
 
     public function updateStatus(Request $request, $id)

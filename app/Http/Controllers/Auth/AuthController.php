@@ -1,22 +1,21 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Auth;
 
+use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\URL;
 use App\Jobs\SendTelegramRegistrationAlertJob;
 use App\Mail\EmailVerificationMail;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
     public function register(Request $request)
     {
-        // Handle camelCase and alternative names from frontend
         $mappings = [
             'companyName' => 'company_name',
             'registrationNumber' => 'registration_number',
@@ -37,14 +36,11 @@ class AuthController extends Controller
             }
         }
 
-        // If a REJECTED or abandoned PENDING_VERIFICATION account exists with this email,
-        // delete it so the user can re-register freely.
         $existingRejected = User::where('email', $request->input('email'))
             ->whereIn('status', ['REJECTED', 'PENDING_VERIFICATION'])
             ->first();
 
         if ($existingRejected) {
-            // Clean up related profiles before deleting the user
             $existingRejected->smeProfile()->delete();
             $existingRejected->investorProfile()->delete();
             $existingRejected->delete();
@@ -56,7 +52,6 @@ class AuthController extends Controller
             'phone' => 'nullable|string|max:20',
             'password' => 'required|string|min:8',
             'role' => 'required|in:SME,INVESTOR',
-            // Profile fields
             'company_name' => 'nullable|string|max:255',
             'registration_number' => 'nullable|string|max:255',
             'industry' => 'nullable|string|max:255',
@@ -106,11 +101,14 @@ class AuthController extends Controller
                 'max_ticket_size' => $validated['max_ticket_size'] ?? null,
                 'industry' => $validated['industry'] ?? null,
                 'address' => $validated['address'] ?? null,
+                'registration_number' => $validated['registration_number'] ?? null,
+                'years_in_business' => $validated['years_in_business'] ?? null,
+                'team_size' => $validated['team_size'] ?? null,
+                'website_url' => $validated['website_url'] ?? null,
                 'registration_document' => $docPath,
             ]);
         }
 
-        // Send Email Verification Link
         try {
             $verificationUrl = URL::temporarySignedRoute(
                 'email.verify',
@@ -122,15 +120,7 @@ class AuthController extends Controller
             \Illuminate\Support\Facades\Log::error('Failed to send verification email: ' . $e->getMessage());
         }
 
-        // Send Telegram Alert (only pass serializable data, not file objects)
-        SendTelegramRegistrationAlertJob::dispatch([
-            'full_name' => $validated['full_name'] ?? null,
-            'role' => $validated['role'] ?? null,
-            'email' => $validated['email'] ?? null,
-            'company_name' => $validated['company_name'] ?? $validated['organization_name'] ?? null,
-            'organization_name' => $validated['organization_name'] ?? null,
-            'industry' => $validated['industry'] ?? null,
-        ]);
+
 
         return $this->success(null, 'Registration successful, awaiting admin approval', 201);
     }
@@ -142,30 +132,27 @@ class AuthController extends Controller
             'password' => 'required'
         ]);
 
-        \Log::info('Login attempt from frontend:', $credentials);
+        $user = User::where('email', $credentials['email'])->first();
 
-        if (!$token = auth('api')->attempt($credentials)) {
-            \Log::warning('Login failed for email: ' . $credentials['email']);
+        if (!$user || !Hash::check($credentials['password'], $user->password)) {
             return $this->unauthorized('Invalid email or password');
         }
 
-        // Before returning the token, make sure the user is ACTIVE
-        $user = auth('api')->user();
         if ($user->status !== 'ACTIVE') {
-            auth('api')->logout();
             return $this->forbidden('Account is pending approval or inactive');
         }
 
-        // Update last login
         $user->update(['last_login_at' => now()]);
 
-        return $this->respondWithToken($token);
+        // One active API token per login (revoke previous sessions)
+        $user->tokens()->delete();
+
+        return $this->respondWithToken($user->createToken('api-client'));
     }
 
-    public function profile()
+    public function profile(Request $request)
     {
-        // Eager load the profile based on the user's role
-        $user = auth('api')->user();
+        $user = $request->user();
 
         if ($user->role === 'SME') {
             $user->load('smeProfile');
@@ -176,23 +163,50 @@ class AuthController extends Controller
         return $this->success($user);
     }
 
-    public function logout()
+    public function logout(Request $request)
     {
-        auth('api')->logout();
+        $this->revokeCurrentAccessToken($request);
+
         return $this->success(null, 'Successfully logged out');
     }
 
-    public function refresh()
+    public function refresh(Request $request)
     {
-        return $this->respondWithToken(auth('api')->refresh());
+        $user = $request->user();
+        $this->revokeCurrentAccessToken($request);
+
+        return $this->respondWithToken($user->createToken('api-client'), 'Token refreshed');
     }
 
-    protected function respondWithToken($token)
+    /**
+     * Revoke the bearer token used on this request (Sanctum personal access token).
+     */
+    protected function revokeCurrentAccessToken(Request $request): void
     {
+        $user = $request->user();
+        if (!$user) {
+            return;
+        }
+
+        $token = $user->currentAccessToken();
+        if ($token) {
+            $token->delete();
+            return;
+        }
+
+        if ($bearer = $request->bearerToken()) {
+            PersonalAccessToken::findToken($bearer)?->delete();
+        }
+    }
+
+    protected function respondWithToken($accessToken, string $message = 'Login successful')
+    {
+        $expiresMinutes = config('sanctum.expiration');
+
         return $this->success([
-            'access_token' => $token,
-            'token_type' => 'bearer',
-            'expires_in' => auth('api')->factory()->getTTL() * 60
-        ], 'Login successful');
+            'access_token' => $accessToken->plainTextToken,
+            'token_type' => 'Bearer',
+            'expires_in' => $expiresMinutes ? $expiresMinutes * 60 : null,
+        ], $message);
     }
 }

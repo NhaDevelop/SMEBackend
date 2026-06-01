@@ -8,8 +8,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
-use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
-
 class DocumentTest extends TestCase
 {
     use RefreshDatabase;
@@ -28,7 +26,7 @@ class DocumentTest extends TestCase
             'status' => 'ACTIVE'
         ]);
         $this->user->smeProfile()->create(['company_name' => 'Test Co', 'readiness_score' => 0]);
-        $this->token = JWTAuth::fromUser($this->user);
+        $this->token = $this->sanctumToken($this->user);
         Storage::fake('public');
     }
 

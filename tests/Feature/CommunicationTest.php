@@ -7,8 +7,6 @@ use App\Models\Message;
 use App\Models\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
-
 class CommunicationTest extends TestCase
 {
     use RefreshDatabase;
@@ -26,7 +24,7 @@ class CommunicationTest extends TestCase
             'role' => 'SME',
             'status' => 'ACTIVE'
         ]);
-        $this->token = JWTAuth::fromUser($this->user);
+        $this->token = $this->sanctumToken($this->user);
     }
 
     public function test_user_can_send_and_receive_messages()

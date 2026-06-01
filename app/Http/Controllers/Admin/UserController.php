@@ -47,7 +47,7 @@ class UserController extends Controller
             });
         }
 
-        $paginator = $query->paginate(15);
+        $paginator = $query->latest()->paginate(15);
         $responseArray = $paginator->toArray();
         $responseArray['stats'] = [
             'total'     => User::count(),
@@ -181,6 +181,7 @@ class UserController extends Controller
             'status' => 'required|in:PENDING,ACTIVE,REJECTED',
             // Profile fields
             'company_name' => 'nullable|string|max:255',
+            'organization_name' => 'nullable|string|max:255',
             'registration_number' => 'nullable|string|max:255',
             'industry' => 'nullable|string|max:255',
             'stage' => 'nullable|string|max:255',
@@ -188,6 +189,7 @@ class UserController extends Controller
             'team_size' => 'nullable|string|max:255',
             'address' => 'nullable|string',
             'website' => 'nullable|string',
+            'website_url' => 'nullable|string',
             'investor_type' => 'nullable|string',
             'min_ticket_size' => 'nullable|numeric',
             'max_ticket_size' => 'nullable|numeric',
@@ -212,10 +214,11 @@ class UserController extends Controller
                 'years_in_business' => $validated['years_in_business'] ?? null,
                 'team_size' => $validated['team_size'] ?? null,
                 'address' => $validated['address'] ?? null,
+                'website_url' => $validated['website'] ?? $validated['website_url'] ?? null,
             ]);
         } elseif ($user->role === 'INVESTOR') {
             $user->investorProfile()->create([
-                'organization_name' => $validated['company_name'] ?? null,
+                'organization_name' => $validated['organization_name'] ?? $validated['company_name'] ?? null,
                 'registration_number' => $validated['registration_number'] ?? null,
                 'investor_type' => $validated['investor_type'] ?? null,
                 'industry' => $validated['industry'] ?? null,
@@ -224,11 +227,12 @@ class UserController extends Controller
                 'address' => $validated['address'] ?? null,
                 'min_ticket_size' => $validated['min_ticket_size'] ?? null,
                 'max_ticket_size' => $validated['max_ticket_size'] ?? null,
+                'website_url' => $validated['website'] ?? $validated['website_url'] ?? null,
             ]);
         }
 
         \App\Models\AuditLog::create([
-            'user_id' => auth('api')->id(),
+            'user_id' => auth('sanctum')->id(),
             'action' => 'MANUAL_USER_CREATE',
             'target_entity' => 'User',
             'target_id' => $user->id,
@@ -251,7 +255,7 @@ class UserController extends Controller
         $user->update(['status' => $status]);
 
         \App\Models\AuditLog::create([
-            'user_id' => auth('api')->id(),
+            'user_id' => auth('sanctum')->id(),
             'action' => 'UPDATE_STATUS',
             'target_entity' => 'User',
             'target_id' => $user->id,
@@ -301,7 +305,7 @@ class UserController extends Controller
         ]);
 
         \App\Models\AuditLog::create([
-            'user_id' => auth('api')->id(),
+            'user_id' => auth('sanctum')->id(),
             'action' => 'RESET_PASSWORD',
             'target_entity' => 'User',
             'target_id' => $user->id,

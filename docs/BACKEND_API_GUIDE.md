@@ -6,7 +6,7 @@ This document outlines the complete RESTful backend API built in Laravel 11. It 
 
 ## 🔒 1. Authentication Flow & Headers
 
-The backend uses **JWT (JSON Web Tokens)** for authentication.
+The backend uses **Laravel Sanctum personal access tokens** for authentication.
 
 **Frontend Requirements:**
 
@@ -14,7 +14,7 @@ The backend uses **JWT (JSON Web Tokens)** for authentication.
 2. For all protected routes (everything except `login` and `register`), you MUST attach the token to the HTTP Request Headers:
     ```json
     {
-        "Authorization": "Bearer YOUR_JWT_ACCESS_TOKEN",
+        "Authorization": "Bearer YOUR_SANCTUM_ACCESS_TOKEN",
         "Accept": "application/json"
     }
     ```

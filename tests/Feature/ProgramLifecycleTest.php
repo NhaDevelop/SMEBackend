@@ -7,8 +7,6 @@ use App\Models\Program;
 use App\Models\Template;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
-
 class ProgramLifecycleTest extends TestCase
 {
     use RefreshDatabase;
@@ -27,7 +25,7 @@ class ProgramLifecycleTest extends TestCase
             'status' => 'ACTIVE'
         ]);
         $this->user->smeProfile()->create(['company_name' => 'Test Co', 'readiness_score' => 0]);
-        $this->token = auth('api')->login($this->user);
+        $this->token = $this->sanctumToken($this->user);
     }
 
     public function test_sme_can_apply_to_program()
@@ -55,7 +53,7 @@ class ProgramLifecycleTest extends TestCase
             'role' => 'ADMIN',
             'status' => 'ACTIVE'
         ]);
-        $adminToken = auth('api')->login($admin);
+        $adminToken = $this->sanctumToken($admin);
 
         $template = Template::create(['name' => 'Template X', 'industry' => 'Tech']);
 
@@ -87,7 +85,7 @@ class ProgramLifecycleTest extends TestCase
             'role' => 'ADMIN',
             'status' => 'ACTIVE'
         ]);
-        $adminToken = auth('api')->login($admin);
+        $adminToken = $this->sanctumToken($admin);
 
         $program = Program::create([
             'name' => 'Old Program',
@@ -131,7 +129,7 @@ class ProgramLifecycleTest extends TestCase
             'role' => 'ADMIN',
             'status' => 'ACTIVE'
         ]);
-        $adminToken = auth('api')->login($admin);
+        $adminToken = $this->sanctumToken($admin);
 
         $template = \App\Models\Template::create(['name' => 'New Template', 'status' => 'Active']);
         $program = Program::create(['name' => 'Initial Name']);
@@ -176,7 +174,7 @@ class ProgramLifecycleTest extends TestCase
             'role' => 'ADMIN',
             'status' => 'ACTIVE'
         ]);
-        $adminToken = auth('api')->login($admin);
+        $adminToken = $this->sanctumToken($admin);
 
         $program = Program::create(['name' => 'To Be Deleted']);
 
@@ -196,7 +194,7 @@ class ProgramLifecycleTest extends TestCase
             'role' => 'ADMIN',
             'status' => 'ACTIVE'
         ]);
-        $adminToken = auth('api')->login($admin);
+        $adminToken = $this->sanctumToken($admin);
 
         $program = Program::create([
             'name' => 'Detail Program',

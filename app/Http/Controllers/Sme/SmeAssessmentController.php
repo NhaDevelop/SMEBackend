@@ -1,6 +1,8 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Sme;
+
+use App\Http\Controllers\Controller;
 use App\Models\Program;
 use App\Models\ProgramEnrollment;
 use App\Models\Template;

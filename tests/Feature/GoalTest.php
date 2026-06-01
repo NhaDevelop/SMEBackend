@@ -6,8 +6,6 @@ use App\Models\User;
 use App\Models\Goal;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
-
 class GoalTest extends TestCase
 {
     use RefreshDatabase;
@@ -28,7 +26,7 @@ class GoalTest extends TestCase
         ]);
 
         $this->user->smeProfile()->create(['company_name' => 'Test Co', 'readiness_score' => 0]);
-        $this->token = JWTAuth::fromUser($this->user);
+        $this->token = $this->sanctumToken($this->user);
     }
 
     public function test_sme_can_manage_goals()

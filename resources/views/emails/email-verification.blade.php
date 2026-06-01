@@ -30,6 +30,16 @@
             margin: 0;
             font-size: 24px;
         }
+        .logo-container {
+            margin-bottom: 16px;
+        }
+        .logo {
+            height: 48px;
+            width: auto;
+            border-radius: 50%;
+            background: white;
+            padding: 4px;
+        }
         .content {
             padding: 32px 24px;
             line-height: 1.6;
@@ -60,6 +70,9 @@
 <body>
     <div class="container">
         <div class="header">
+            <div class="logo-container">
+                <img src="{{ $message->embed(public_path('logo.png')) }}" alt="IRiP Logo" class="logo">
+            </div>
             <h1>✉️ Verify Your Email Address</h1>
         </div>
         <div class="content">

@@ -7,8 +7,6 @@ use App\Models\SmeProfile;
 use App\Models\Assessment;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
-
 class InvestorTest extends TestCase
 {
     use RefreshDatabase;
@@ -28,7 +26,7 @@ class InvestorTest extends TestCase
             'status' => 'ACTIVE'
         ]);
 
-        $this->token = JWTAuth::fromUser($this->investor);
+        $this->token = $this->sanctumToken($this->investor);
     }
 
     public function test_investor_can_see_dealflow()

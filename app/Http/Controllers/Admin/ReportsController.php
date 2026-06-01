@@ -293,8 +293,8 @@ class ReportsController extends Controller
 
         $user = null;
 
-        if (auth('api')->check()) {
-            $user = auth('api')->user();
+        if (auth('sanctum')->check()) {
+            $user = auth('sanctum')->user();
         }
 
         if (!$user || !in_array($user->role, ['ADMIN', 'INVESTOR'])) {
@@ -669,11 +669,11 @@ class ReportsController extends Controller
             return $this->portfolio($request);
         }
 
-        if (!auth('api')->check()) {
+        if (!auth('sanctum')->check()) {
             return $this->error('Authentication required', 401);
         }
 
-        $user = auth('api')->user();
+        $user = auth('sanctum')->user();
 
         if (!in_array($user->role, ['ADMIN', 'INVESTOR'])) {
             return $this->error('Unauthorized', 401);
@@ -717,11 +717,11 @@ class ReportsController extends Controller
     {
         $programId = $request->input('programId');
 
-        if (!auth('api')->check()) {
+        if (!auth('sanctum')->check()) {
             return $this->error('Authentication required', 401);
         }
 
-        $user = auth('api')->user();
+        $user = auth('sanctum')->user();
 
         if (!in_array($user->role, ['ADMIN', 'INVESTOR'])) {
             return $this->error('Unauthorized', 401);
