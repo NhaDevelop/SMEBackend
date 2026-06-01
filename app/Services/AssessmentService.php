@@ -86,6 +86,25 @@ class AssessmentService
             return Pillar::all()->keyBy('id');
         });
 
+        // 🔒 FAIRNESS: Load the template's baked-in pillar weights (snapshot taken at
+        // template creation time). This guarantees that every SME — whether it's their
+        // first or fifth retake — is ALWAYS scored against the SAME weights that were
+        // active when this template was originally created, regardless of any future
+        // Admin changes to the global Framework Settings.
+        $templatePillarWeights = [];
+        $template = $assessment->relationLoaded('template')
+            ? $assessment->template
+            : \App\Models\Template::find($assessment->template_id);
+
+        if ($template && !empty($template->settings['pillars'])) {
+            foreach ($template->settings['pillars'] as $p) {
+                $id = $p['id'] ?? null;
+                if ($id !== null) {
+                    $templatePillarWeights[(int)$id] = (float)($p['weight'] ?? 0);
+                }
+            }
+        }
+
         // ── KEY PERFORMANCE FIX ──────────────────────────────────────────────────
         // If responses are already eager-loaded on the model (e.g. when called
         // from InvestorController dealflow/analytics), use them directly.
@@ -111,9 +130,18 @@ class AssessmentService
         $result = [];
         foreach ($pillars as $p) {
             $data = $grouped[$p->id] ?? ['earned' => 0, 'max' => 0];
+            
+            // Skip pillars that are not part of this specific assessment template at all
+            if ($data['max'] == 0) continue;
+
             $score = $data['max'] > 0 ? round(($data['earned'] / $data['max']) * 100, 1) : 0;
             // GLOBALLY CAP AT 100% to prevent over-configuration of points exceeding weights
             $score = min(100, max(0, $score));
+
+            // 🔒 FAIRNESS: Use the template's baked-in pillar weight if available.
+            // If the template has no snapshot (legacy templates created before this fix),
+            // fall back gracefully to the current live Pillar weight.
+            $pillarWeight = $templatePillarWeights[$p->id] ?? (float)$p->weight;
             
             $result[] = [
                 'id'          => $p->id,
@@ -125,7 +153,7 @@ class AssessmentService
                 'max'         => $data['max'],       // Raw max points — for PDF display
                 'max_score'   => $data['max'],       // Alias for PDF Reports
                 'riskLevel'   => $this->getThresholdLabel($score, $thresholds),
-                'weight'      => (float)$p->weight,
+                'weight'      => $pillarWeight,      // 🔒 Snapshot weight, NOT live Pillar table
             ];
         }
 

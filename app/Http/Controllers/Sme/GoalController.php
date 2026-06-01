@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Sme;
 
+use App\Http\Controllers\Controller;
 use App\Models\Goal;
 use App\Models\SmeProfile;
 use App\Models\Assessment;

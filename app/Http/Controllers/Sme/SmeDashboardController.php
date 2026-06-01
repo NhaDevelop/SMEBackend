@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Sme;
 
+use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Assessment;
 use App\Models\AssessmentResponse;
@@ -61,7 +62,7 @@ class SmeDashboardController extends Controller
      * GET /api/sme/dashboard
      * Fetch analytics for the authenticated SME.
      */
-    public function index()
+    public function index(Request $request)
     {
         $user = auth()->user();
         $user->load('smeProfile');
@@ -70,13 +71,32 @@ class SmeDashboardController extends Controller
         }
 
         $profile = $user->smeProfile;
+        $programId = $request->input('program_id');
+
+        $cacheKey = 'sme_dashboard_' . $profile->id . ($programId ? '_prog_' . $programId : '');
+
+        $payload = \Illuminate\Support\Facades\Cache::remember(
+            $cacheKey,
+            120,
+            fn () => $this->buildSmeDashboardPayload($user, $profile, $programId)
+        );
+
+        return $this->success($payload);
+    }
+
+    protected function buildSmeDashboardPayload($user, $profile, $programId = null): array
+    {
 
         // 1. Fetch Latest Assessment & Responses (now with program association)
-        $latestAssessment = Assessment::with('program')
+        $assessmentQuery = Assessment::with('program')
             ->where('sme_id', $profile->id)
-            ->where('status', 'Completed')
-            ->latest()
-            ->first();
+            ->where('status', 'Completed');
+            
+        if ($programId) {
+            $assessmentQuery->where('program_id', $programId);
+        }
+
+        $latestAssessment = $assessmentQuery->latest()->first();
 
         $thresholds = $this->assessmentService->getThresholds($latestAssessment?->program_id);
 
@@ -172,7 +192,22 @@ class SmeDashboardController extends Controller
             ];
         }
 
-        return $this->success([
+        $enrolledProgramRows = \App\Models\ProgramEnrollment::with('program')
+            ->where('sme_id', $profile->id)
+            ->whereIn('status', ['Enrolled', 'Approved', 'Active'])
+            ->get();
+
+        $enrolledPrograms = [];
+        foreach ($enrolledProgramRows as $enrollment) {
+            if (!is_null($enrollment->program_id)) {
+                $enrolledPrograms[] = [
+                    'id'   => $enrollment->program_id,
+                    'name' => $enrollment->program?->name ?? 'Unknown Program',
+                ];
+            }
+        }
+
+        return [
             'company' => [
                 'name' => $profile->company_name ?? $user->full_name,
                 'industry' => $profile->industry,
@@ -181,6 +216,7 @@ class SmeDashboardController extends Controller
                 'lastAssessed' => $latestAssessment ? $latestAssessment->completed_at->format('Y-M-d') : null,
                 'updated_at' => $latestAssessment ? $latestAssessment->completed_at->format('Y-m-d H:i:s') : $profile->updated_at->format('Y-m-d H:i:s')
             ],
+            'enrolled_programs' => $enrolledPrograms,
             'thresholds' => $thresholds,
             'pillars' => $pillarStats,
             'progress' => $progress,
@@ -191,7 +227,7 @@ class SmeDashboardController extends Controller
                 'achieved' => $achievedGoalsCount,
                 'progress' => $avgProgress
             ]
-        ]);
+        ];
     }
 
 }

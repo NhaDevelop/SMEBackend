@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Auth;
 
+use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -45,6 +46,7 @@ class ProfileController extends Controller
             'years_in_business' => 'nullable|string|max:255',
             'team_size' => 'nullable|string|max:255',
             'address' => 'nullable|string',
+            'website_url' => 'nullable|string|max:255',
         ]);
 
         // Separate user and profile fields
@@ -86,6 +88,7 @@ class ProfileController extends Controller
             'min_ticket_size'        => 'nullable|numeric|min:0',
             'max_ticket_size'        => 'nullable|numeric|min:0',
             'preferred_industries'   => 'nullable|array',
+            'website_url'            => 'nullable|string|max:255',
         ]);
 
         // Separate user and profile fields

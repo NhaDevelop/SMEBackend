@@ -14,7 +14,7 @@ class ProgramController extends Controller
     use ApiResponse;
     public function index()
     {
-        $user = auth('api')->user();
+        $user = auth('sanctum')->user();
         $query = Program::with(['template']);
         // If not admin, only show Published programs
         if (!$user || $user->role !== 'ADMIN') {
@@ -23,8 +23,12 @@ class ProgramController extends Controller
 
         // Optimization: use withCount to get enrollment stats in a single query
         $query->withCount([
-            'enrollments as smes_count' => function ($q) { $q->whereNotNull('sme_id'); },
-            'enrollments as investors_count' => function ($q) { $q->whereNotNull('investor_id'); }
+            'enrollments as smes_count' => function ($q) {
+                $q->whereNotNull('sme_id');
+            },
+            'enrollments as investors_count' => function ($q) {
+                $q->whereNotNull('investor_id');
+            }
         ]);
 
         // Optimization: batch check enrollment for the current user
@@ -38,7 +42,7 @@ class ProgramController extends Controller
             }
         }
 
-        $programs = $query->get()->map(function ($program) use ($userEnrollments) {
+        $programs = $query->latest()->get()->map(function ($program) use ($userEnrollments) {
             return $this->formatProgram($program, $userEnrollments);
         });
 
@@ -66,14 +70,14 @@ class ProgramController extends Controller
                 'nullable',
                 'exists:templates,id',
                 function ($attribute, $value, $fail) {
-            $template = \App\Models\Template::find($value);
-            if ($template && $template->status !== 'Active') {
-                $fail('The selected template must be active.');
-            }
-            if (\App\Models\Program::where('template_id', $value)->exists()) {
-                $fail('This template is already assigned to another program.');
-            }
-        },
+                    $template = \App\Models\Template::find($value);
+                    if ($template && $template->status !== 'Active') {
+                        $fail('The selected template must be active.');
+                    }
+                    if (\App\Models\Program::where('template_id', $value)->exists()) {
+                        $fail('This template is already assigned to another program.');
+                    }
+                },
             ],
             'status' => 'nullable|string|in:Coming Soon,Published,Unpublished,Finished',
             'start_date' => 'nullable|date',
@@ -119,7 +123,7 @@ class ProgramController extends Controller
                     if ($value == $program->template_id) {
                         return;
                     }
-                    
+
                     $template = \App\Models\Template::find($value);
                     if ($template && $template->status !== 'Active') {
                         $fail('The selected template must be active.');
@@ -187,19 +191,19 @@ class ProgramController extends Controller
     {
         $totalSmes = $program->smes_count ?? ProgramEnrollment::where('program_id', $program->id)->whereNotNull('sme_id')->count();
         $totalInvestors = $program->investors_count ?? ProgramEnrollment::where('program_id', $program->id)->whereNotNull('investor_id')->count();
-        
+
         $completedAssessments = \App\Models\Assessment::where('program_id', $program->id)
             ->where('status', 'Completed')
             ->select('sme_id', 'total_score')
             ->get();
-            
+
         $uniqueCompleted = $completedAssessments->unique('sme_id');
         $progress = $totalSmes > 0 ? round(($uniqueCompleted->count() / $totalSmes) * 100) : 0;
         $avgScore = $uniqueCompleted->count() > 0 ? round($uniqueCompleted->avg('total_score')) : 0;
 
         $isEnrolled = in_array($program->id, $userEnrollments);
-        $user = auth('api')->user();
- 
+        $user = auth('sanctum')->user();
+
         return [
             'id' => $program->id,
             'name' => $program->name,
@@ -242,8 +246,8 @@ class ProgramController extends Controller
 
         foreach ($validated['smeIds'] as $smeId) {
             ProgramEnrollment::updateOrCreate(
-            ['program_id' => $validated['programId'], 'sme_id' => $smeId],
-            ['status' => 'Accepted', 'enrollment_date' => now()]
+                ['program_id' => $validated['programId'], 'sme_id' => $smeId],
+                ['status' => 'Accepted', 'enrollment_date' => now()]
             );
         }
 
@@ -270,7 +274,7 @@ class ProgramController extends Controller
 
         // Audit Log
         \App\Models\AuditLog::create([
-            'user_id' => auth('api')->id(),
+            'user_id' => auth('sanctum')->id(),
             'action' => 'UPDATE_ENROLLMENT_STATUS',
             'target_entity' => 'ProgramEnrollment',
             'target_id' => $enrollment->id,
@@ -342,9 +346,9 @@ class ProgramController extends Controller
         }
 
         $enrollment = ProgramEnrollment::create([
-            'program_id'      => $program->id,
-            'sme_id'          => $smeProfile->id,
-            'status'          => 'Enrolled',
+            'program_id' => $program->id,
+            'sme_id' => $smeProfile->id,
+            'status' => 'Enrolled',
             'enrollment_date' => now()
         ]);
 
@@ -365,12 +369,14 @@ class ProgramController extends Controller
             $isEnrolled = ProgramEnrollment::where('program_id', $id)
                 ->where('sme_id', $user->smeProfile?->id)
                 ->exists();
-            if (!$isEnrolled) return $this->forbidden('You must be enrolled in this program to view participants.');
+            if (!$isEnrolled)
+                return $this->forbidden('You must be enrolled in this program to view participants.');
         } elseif ($user->role === 'INVESTOR') {
             $isEnrolled = ProgramEnrollment::where('program_id', $id)
                 ->where('investor_id', $user->investorProfile?->id)
                 ->exists();
-            if (!$isEnrolled) return $this->forbidden('You must be enrolled in this program to view participants.');
+            if (!$isEnrolled)
+                return $this->forbidden('You must be enrolled in this program to view participants.');
         }
 
         $enrollments = ProgramEnrollment::where('program_id', $id)

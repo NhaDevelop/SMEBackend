@@ -48,7 +48,7 @@ class PillarController extends Controller
     public function update(Request $request, string $id)
     {
         $pillar = \App\Models\Pillar::findOrFail($id);
-        
+
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'weight' => 'sometimes|numeric|min:0|max:100',

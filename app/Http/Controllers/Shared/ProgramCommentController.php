@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Shared;
 
+use App\Http\Controllers\Controller;
 use App\Models\Program;
 use App\Models\ProgramComment;
 use Illuminate\Http\Request;

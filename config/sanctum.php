@@ -34,7 +34,8 @@ return [
     |
     */
 
-    'guard' => ['web'],
+    // API-only: do not fall back to the web session guard (Bearer tokens only).
+    'guard' => [],
 
     /*
     |--------------------------------------------------------------------------
@@ -47,7 +48,7 @@ return [
     |
     */
 
-    'expiration' => null,
+    'expiration' => env('SANCTUM_TOKEN_EXPIRATION', 1440),
 
     /*
     |--------------------------------------------------------------------------
